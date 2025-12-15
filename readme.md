@@ -51,7 +51,7 @@ _A modern, open-source game server management panel with multi-node support_
 1. **Clone the repository**
 
 ```bash
-git clone https://github.com/yourusername/zyperpanel.git
+git clone https://github.com/zyperdev12/zyperpanel.git
 cd zyperpanel
 ```
 
