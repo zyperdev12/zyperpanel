@@ -1,0 +1,2010 @@
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.io = exports.prisma = exports.app = void 0;
+const express_1 = __importDefault(require("express"));
+const express_session_1 = __importDefault(require("express-session"));
+const cors_1 = __importDefault(require("cors"));
+const cookie_parser_1 = __importDefault(require("cookie-parser"));
+const http_1 = require("http");
+const socket_io_1 = require("socket.io");
+const path_1 = __importDefault(require("path"));
+const dotenv_1 = __importDefault(require("dotenv"));
+const client_1 = require("@prisma/client");
+const bcryptjs_1 = __importDefault(require("bcryptjs"));
+const statusChecker_1 = require("./handlers/utils/node/statusChecker");
+const axios_1 = __importDefault(require("axios"));
+dotenv_1.default.config();
+const app = (0, express_1.default)();
+exports.app = app;
+const prisma = new client_1.PrismaClient();
+exports.prisma = prisma;
+const ensureDefaultAdmin = async () => {
+    const adminEmail = process.env.DEFAULT_ADMIN_EMAIL;
+    const adminUsername = process.env.DEFAULT_ADMIN_USERNAME;
+    const adminPassword = process.env.DEFAULT_ADMIN_PASSWORD;
+    if (!adminEmail || !adminUsername || !adminPassword) {
+        console.warn("⚠️ Default admin env vars not set");
+        return;
+    }
+    const existingAdmin = await prisma.user.findFirst({
+        where: { isAdmin: true },
+    });
+    if (existingAdmin) {
+        console.log("✅ Admin already exists");
+        return;
+    }
+    const hashedPassword = bcryptjs_1.default.hashSync(adminPassword, 10);
+    await prisma.user.create({
+        data: {
+            email: adminEmail.toLowerCase(),
+            username: adminUsername,
+            password: hashedPassword,
+            isAdmin: true,
+        },
+    });
+    console.log("✅ Default admin created:", adminEmail);
+};
+// ============== CRITICAL FIX: ADD DEFAULT NODE ==============
+const ensureDefaultNode = async () => {
+    try {
+        // Check if we already have the CodeSandbox node added
+        const existingNode = await prisma.node.findFirst({
+            where: { name: "codesandbox-20251210" },
+        });
+        if (existingNode) {
+            console.log("✅ Default node already exists");
+            return;
+        }
+        // Add the CodeSandbox daemon node to the panel
+        const nodeData = {
+            id: "c3e315df-646d-4590-98e1-0c624097054b", // From daemon output
+            name: "codesandbox-20251210",
+            cpu: 2000, // 2 CPU cores
+            ram: 4096, // 4GB RAM
+            location: "CodeSandbox",
+            host: "localhost", // Daemon is running locally
+            port: 8080, // Daemon port
+            key: "ac315994f3a9bde8c6821d9384a2ebe56361f45e67bf73105699ab3ec07d2d36", // Node Key from daemon
+            status: "online",
+            createdAt: new Date(),
+        };
+        await prisma.node.create({
+            data: nodeData,
+        });
+        console.log("✅ Default node created:", nodeData.name);
+        console.log("📡 Node configured with:");
+        console.log("   - ID:", nodeData.id);
+        console.log("   - Key:", nodeData.key);
+        console.log("   - Host:", nodeData.host);
+        console.log("   - Port:", nodeData.port);
+    }
+    catch (error) {
+        console.error("❌ Failed to create default node:", error.message);
+    }
+};
+const httpServer = (0, http_1.createServer)(app);
+const io = new socket_io_1.Server(httpServer, {
+    cors: {
+        origin: [
+            "http://localhost:3000",
+            "http://localhost:8080",
+            "https://*.csb.app",
+            "https://t2sqjj-3000.csb.app",
+        ],
+        credentials: true,
+    },
+});
+exports.io = io;
+// Middleware
+app.use((0, cors_1.default)({
+    origin: [
+        "http://localhost:3000",
+        "http://localhost:8080",
+        "https://*.csb.app",
+        "https://t2sqjj-3000.csb.app",
+        "https://zyperpanel.dev.tc/",
+        "https://zyperpanel.altracloud.fun/",
+        "https://zyperpanel.dev.tc/?ref=site.ac/islem-URL",
+    ],
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: [
+        "Content-Type",
+        "Authorization",
+        "x-api-key",
+        "x-node-key",
+    ],
+}));
+app.use(express_1.default.json());
+app.use(express_1.default.urlencoded({ extended: true }));
+app.use((0, cookie_parser_1.default)());
+app.use((0, express_session_1.default)({
+    secret: process.env.SESSION_SECRET || "zyperpanel-secret",
+    resave: false,
+    saveUninitialized: false,
+    cookie: { secure: false, maxAge: 24 * 60 * 60 * 1000 },
+}));
+app.set("view engine", "ejs");
+app.set("views", path_1.default.join(__dirname, "../views"));
+app.use(express_1.default.static(path_1.default.join(__dirname, "../public")));
+// Get settings helper
+const getSettings = async () => {
+    let settings = await prisma.settings.findFirst();
+    if (!settings) {
+        settings = await prisma.settings.create({
+            data: {
+                panelName: "ZyperPanel",
+                panelPort: 3000,
+                panelIcon: "/favicon.ico",
+            },
+        });
+    }
+    return settings;
+};
+// Auth middleware
+const requireAuth = async (req, res, next) => {
+    if (!req.session.userId) {
+        const settings = await getSettings();
+        return res.status(401).render("error/500", {
+            settings,
+            errorType: "auth",
+            originalUrl: req.originalUrl,
+            method: req.method,
+            isAuthenticated: false,
+            user: null,
+            sessionId: req.session.id,
+            message: "Please login to access this page",
+        });
+    }
+    next();
+};
+const requireAdmin = async (req, res, next) => {
+    if (!req.session.userId) {
+        const settings = await getSettings();
+        return res.status(401).render("error/500", {
+            settings,
+            errorType: "auth",
+            originalUrl: req.originalUrl,
+            method: req.method,
+            isAuthenticated: false,
+            user: null,
+            sessionId: req.session.id,
+            message: "Please login to access this page",
+        });
+    }
+    const user = await prisma.user.findUnique({
+        where: { id: req.session.userId },
+        select: { id: true, username: true, email: true, isAdmin: true },
+    });
+    if (!user?.isAdmin) {
+        const settings = await getSettings();
+        return res.status(403).render("error/500", {
+            settings,
+            errorType: "admin",
+            originalUrl: req.originalUrl,
+            method: req.method,
+            isAuthenticated: true,
+            user: user,
+            sessionId: req.session.id,
+            message: "Admin privileges required",
+        });
+    }
+    // Add user to request object
+    req.user = user;
+    next();
+};
+// ============== NODE API HELPER (FIXED) ==============
+class NodeAPI {
+    static async call(nodeId, endpoint, method = "GET", data) {
+        try {
+            const node = await prisma.node.findUnique({ where: { id: nodeId } });
+            if (!node)
+                throw new Error("Node not found");
+            const url = `http://${node.host || "localhost"}:${node.port || 8080}${endpoint}`;
+            console.log(`[NodeAPI] ${method} ${url}`);
+            // DEBUG: Log what key we're using
+            console.log(`[NodeAPI Debug] Node key from DB: ${node.key ? `${node.key.substring(0, 20)}...` : "MISSING"}`);
+            // FINAL FIX: Use the node.key from database (which matches daemon's nodeKey)
+            const headers = {
+                "Content-Type": "application/json",
+                "x-api-key": node.key, // MUST be "ac315994f3a9bde8c6821d9384a2ebe56361f45e67bf73105699ab3ec07d2d36"
+            };
+            // Also include Authorization header as backup
+            if (node.key) {
+                headers["authorization"] = `Bearer ${node.key}`;
+            }
+            console.log(`[NodeAPI Headers] x-api-key: ${node.key ? "✓ Present" : "✗ Missing"}`);
+            const response = await (0, axios_1.default)({
+                method,
+                url,
+                data,
+                headers,
+                timeout: 15000,
+            });
+            return response.data;
+        }
+        catch (error) {
+            console.error(`[NodeAPI Error] ${endpoint}:`, error.message);
+            if (error.response) {
+                console.error(`[NodeAPI Status] ${error.response.status}`);
+                console.error(`[NodeAPI Response]`, error.response.data);
+                console.error(`[NodeAPI Headers Sent]`, error.config?.headers
+                    ? {
+                        "x-api-key": error.config.headers["x-api-key"]
+                            ? "✓ Sent"
+                            : "✗ Missing",
+                        authorization: error.config.headers["authorization"]
+                            ? "✓ Sent"
+                            : "✗ Missing",
+                    }
+                    : "No headers");
+            }
+            throw error;
+        }
+    }
+    // FIXED: getServerVersions method
+    static async getServerVersions(nodeId, serverType) {
+        return await this.call(nodeId, `/versions/${serverType}`, "GET");
+    }
+    static async getPaperBuilds(nodeId, version) {
+        return await this.call(nodeId, `/versions/paper/${version}/builds`, "GET");
+    }
+    static async changeServerVersion(serverId, version, serverType, build) {
+        const server = await prisma.server.findUnique({
+            where: { id: serverId },
+            include: { node: true },
+        });
+        if (!server)
+            throw new Error("Server not found");
+        if (!server.node)
+            throw new Error("Node not found");
+        if (!server.containerId)
+            throw new Error("Server has no container ID");
+        return await this.call(server.node.id, `/instances/${server.containerId}/change-version`, "POST", { version, serverType, build });
+    }
+    // Server management methods
+    static async startServer(serverId) {
+        const server = await prisma.server.findUnique({
+            where: { id: serverId },
+            include: { node: true },
+        });
+        if (!server)
+            throw new Error("Server not found");
+        if (!server.node)
+            throw new Error("Node not found");
+        if (!server.containerId)
+            throw new Error("Server has no container ID");
+        return await this.call(server.node.id, `/instances/${server.containerId}/start`, "POST");
+    }
+    static async stopServer(serverId) {
+        const server = await prisma.server.findUnique({
+            where: { id: serverId },
+            include: { node: true },
+        });
+        if (!server)
+            throw new Error("Server not found");
+        if (!server.node)
+            throw new Error("Node not found");
+        if (!server.containerId)
+            throw new Error("Server has no container ID");
+        return await this.call(server.node.id, `/instances/${server.containerId}/stop`, "POST");
+    }
+    static async restartServer(serverId) {
+        const server = await prisma.server.findUnique({
+            where: { id: serverId },
+            include: { node: true },
+        });
+        if (!server)
+            throw new Error("Server not found");
+        if (!server.node)
+            throw new Error("Node not found");
+        if (!server.containerId)
+            throw new Error("Server has no container ID");
+        return await this.call(server.node.id, `/instances/${server.containerId}/restart`, "POST");
+    }
+    static async createServer(nodeId, serverData) {
+        return await this.call(nodeId, "/instances/create", "POST", serverData);
+    }
+    static async getServerFiles(serverId, path) {
+        const server = await prisma.server.findUnique({
+            where: { id: serverId },
+            include: { node: true },
+        });
+        if (!server)
+            throw new Error("Server not found");
+        if (!server.node)
+            throw new Error("Node not found");
+        if (!server.containerId)
+            throw new Error("Server has no container ID");
+        return await this.call(server.node.id, `/instances/${server.containerId}/files/list`, "POST", { path: path || "/" });
+    }
+    static async readFile(serverId, filePath) {
+        const server = await prisma.server.findUnique({
+            where: { id: serverId },
+            include: { node: true },
+        });
+        if (!server)
+            throw new Error("Server not found");
+        if (!server.node)
+            throw new Error("Node not found");
+        if (!server.containerId)
+            throw new Error("Server has no container ID");
+        return await this.call(server.node.id, `/instances/${server.containerId}/files/read`, "POST", { filePath });
+    }
+    static async writeFile(serverId, filePath, content) {
+        const server = await prisma.server.findUnique({
+            where: { id: serverId },
+            include: { node: true },
+        });
+        if (!server)
+            throw new Error("Server not found");
+        if (!server.node)
+            throw new Error("Node not found");
+        if (!server.containerId)
+            throw new Error("Server has no container ID");
+        return await this.call(server.node.id, `/instances/${server.containerId}/files/write`, "POST", { filePath, content });
+    }
+    static async uploadFile(serverId, filePath, fileName, fileData, encoding = "base64") {
+        const server = await prisma.server.findUnique({
+            where: { id: serverId },
+            include: { node: true },
+        });
+        if (!server)
+            throw new Error("Server not found");
+        if (!server.node)
+            throw new Error("Node not found");
+        if (!server.containerId)
+            throw new Error("Server has no container ID");
+        return await this.call(server.node.id, `/instances/${server.containerId}/files/upload`, "POST", { filePath, fileName, fileData, encoding });
+    }
+    // Update the deleteFile method in NodeAPI class
+    static async deleteFile(serverId, filePath, force = false) {
+        const server = await prisma.server.findUnique({
+            where: { id: serverId },
+            include: { node: true },
+        });
+        if (!server)
+            throw new Error("Server not found");
+        if (!server.node)
+            throw new Error("Node not found");
+        if (!server.containerId)
+            throw new Error("Server has no container ID");
+        const endpoint = `/instances/${server.containerId}/files/delete`;
+        return await this.call(server.node.id, endpoint, "POST", {
+            filePath,
+            force,
+        });
+    }
+    static async getServerLogs(serverId) {
+        const server = await prisma.server.findUnique({
+            where: { id: serverId },
+            include: { node: true },
+        });
+        if (!server)
+            throw new Error("Server not found");
+        if (!server.node)
+            throw new Error("Node not found");
+        if (!server.containerId)
+            throw new Error("Server has no container ID");
+        console.log(`[NodeAPI] Getting logs for server ${serverId}, container ${server.containerId}`);
+        try {
+            const logs = await this.call(server.node.id, `/instances/${server.containerId}/logs`, "GET");
+            console.log(`[NodeAPI] Logs response:`, logs);
+            return logs;
+        }
+        catch (error) {
+            console.error(`[NodeAPI] Failed to get logs:`, error.message);
+            return {
+                success: false,
+                logs: `Error fetching logs: ${error.message}`,
+                error: error.message,
+            };
+        }
+    }
+    static async getServerStats(serverId) {
+        const server = await prisma.server.findUnique({
+            where: { id: serverId },
+            include: { node: true },
+        });
+        if (!server)
+            throw new Error("Server not found");
+        if (!server.node)
+            throw new Error("Node not found");
+        if (!server.containerId)
+            throw new Error("Server has no container ID");
+        return await this.call(server.node.id, `/instances/${server.containerId}/stats`, "GET");
+    }
+    static async runCommand(serverId, command) {
+        const server = await prisma.server.findUnique({
+            where: { id: serverId },
+            include: { node: true },
+        });
+        if (!server)
+            throw new Error("Server not found");
+        if (!server.node)
+            throw new Error("Node not found");
+        if (!server.containerId)
+            throw new Error("Server has no container ID");
+        return await this.call(server.node.id, `/instances/${server.containerId}/command`, "POST", { command });
+    }
+}
+// ============== PUBLIC ROUTES ==============
+app.get("/", async (req, res) => {
+    const settings = await getSettings();
+    res.render("index", { settings });
+});
+// ============== AUTH ROUTES ==============
+app.get("/auth/login", async (req, res) => {
+    const settings = await getSettings();
+    res.render("auth/login", { settings, error: null });
+});
+app.post("/auth/login", async (req, res) => {
+    const { email, password } = req.body;
+    const settings = await getSettings();
+    const user = await prisma.user.findUnique({
+        where: { email: email.toLowerCase() },
+    });
+    if (!user) {
+        return res.render("auth/login", {
+            settings,
+            error: "Invalid credentials",
+        });
+    }
+    const valid = bcryptjs_1.default.compareSync(password, user.password);
+    if (!valid) {
+        return res.render("auth/login", {
+            settings,
+            error: "Invalid credentials",
+        });
+    }
+    req.session.userId = user.id;
+    res.redirect(user.isAdmin ? "/admin/overview" : "/dashboard");
+});
+app.get("/auth/register", async (req, res) => {
+    const settings = await getSettings();
+    res.render("auth/register", { settings, error: null });
+});
+app.post("/auth/register", async (req, res) => {
+    const { username, email, password } = req.body;
+    const settings = await getSettings();
+    try {
+        const hashedPassword = bcryptjs_1.default.hashSync(password, 10);
+        const userCount = await prisma.user.count();
+        const user = await prisma.user.create({
+            data: {
+                username,
+                email,
+                password: hashedPassword,
+                isAdmin: userCount === 0,
+            },
+        });
+        req.session.userId = user.id;
+        res.redirect(user.isAdmin ? "/admin/overview" : "/dashboard");
+    }
+    catch (error) {
+        res.render("auth/register", { settings, error: "User already exists" });
+    }
+});
+app.get("/auth/logout", (req, res) => {
+    req.session.destroy(() => {
+        res.redirect("/");
+    });
+});
+// ============== USER DASHBOARD ==============
+app.get("/dashboard", requireAuth, async (req, res) => {
+    const settings = await getSettings();
+    const user = await prisma.user.findUnique({
+        where: { id: req.session.userId },
+    });
+    const servers = await prisma.server.findMany({
+        where: { userId: req.session.userId },
+        include: { node: true, players: true },
+    });
+    res.render("user/dashboard", { settings, user, servers });
+});
+// ============== SERVER MANAGEMENT ==============
+app.get("/server/:id", requireAuth, async (req, res) => {
+    const settings = await getSettings();
+    const user = await prisma.user.findUnique({
+        where: { id: req.session.userId },
+    });
+    const server = await prisma.server.findUnique({
+        where: { id: req.params.id },
+        include: { node: true, players: true, plugins: true },
+    });
+    if (!server || server.userId !== req.session.userId) {
+        return res.redirect("/dashboard");
+    }
+    res.render("user/server/manage", { settings, user, server });
+});
+app.get("/server/:id/console", requireAuth, async (req, res) => {
+    const settings = await getSettings();
+    const user = await prisma.user.findUnique({
+        where: { id: req.session.userId },
+    });
+    const server = await prisma.server.findUnique({
+        where: { id: req.params.id },
+        include: { node: true },
+    });
+    if (!server || server.userId !== req.session.userId) {
+        return res.redirect("/dashboard");
+    }
+    const logs = await prisma.consoleLog.findMany({
+        where: { serverId: req.params.id },
+        orderBy: { createdAt: "desc" },
+        take: 100,
+    });
+    res.render("user/server/console", {
+        settings,
+        user,
+        server,
+        logs: logs.reverse(),
+        serverId: server.id,
+    });
+});
+app.get("/server/:id/files", requireAuth, async (req, res) => {
+    try {
+        const settings = await getSettings();
+        const user = await prisma.user.findUnique({
+            where: { id: req.session.userId },
+        });
+        const server = await prisma.server.findUnique({
+            where: { id: req.params.id },
+            include: { node: true },
+        });
+        if (!server || server.userId !== req.session.userId) {
+            return res.redirect("/dashboard");
+        }
+        const currentPath = req.query.path || "/";
+        let files = [];
+        let error = null;
+        if (server.containerId) {
+            try {
+                const filesResponse = await NodeAPI.getServerFiles(server.id, currentPath);
+                if (filesResponse.success && filesResponse.items) {
+                    files = filesResponse.items.map((item) => ({
+                        name: item.name,
+                        isDir: item.type === "directory",
+                        size: item.size || 0,
+                        path: item.path,
+                        modified: item.modified,
+                        permissions: item.permissions,
+                        type: item.type,
+                    }));
+                    console.log(`[Files] Found ${files.length} items in ${currentPath}`);
+                }
+                else {
+                    error = filesResponse.error || "Failed to fetch files";
+                }
+            }
+            catch (fileError) {
+                console.error("[Files] Daemon error:", fileError.message);
+                error = "Could not connect to daemon: " + fileError.message;
+            }
+        }
+        else {
+            error = "Server not created yet";
+        }
+        res.render("user/server/files", {
+            settings,
+            user,
+            server,
+            files,
+            currentPath,
+            error,
+            formatBytes: (bytes) => {
+                if (bytes === 0)
+                    return "0 Bytes";
+                const k = 1024;
+                const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
+                const i = Math.floor(Math.log(bytes) / Math.log(k));
+                return (parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i]);
+            },
+        });
+    }
+    catch (error) {
+        console.error("Files route error:", error);
+        res.redirect("/dashboard");
+    }
+});
+// Delete file
+app.post("/server/:id/files/delete", requireAuth, async (req, res) => {
+    try {
+        const { filePath, force = false } = req.body;
+        const server = await prisma.server.findUnique({
+            where: { id: req.params.id },
+            include: { node: true },
+        });
+        if (!server || server.userId !== req.session.userId) {
+            return res.status(403).json({ error: "Access denied" });
+        }
+        if (!server.containerId) {
+            return res.status(400).json({ error: "Server not created" });
+        }
+        const result = await NodeAPI.call(server.node.id, `/instances/${server.containerId}/files/delete`, "POST", { filePath, force });
+        res.json(result);
+    }
+    catch (error) {
+        console.error("Delete error:", error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            message: "Failed to delete file",
+        });
+    }
+});
+// Force delete (for non-empty directories)
+app.post("/server/:id/files/delete-force", requireAuth, async (req, res) => {
+    try {
+        const { filePath } = req.body;
+        const server = await prisma.server.findUnique({
+            where: { id: req.params.id },
+            include: { node: true },
+        });
+        if (!server || server.userId !== req.session.userId) {
+            return res.status(403).json({ error: "Access denied" });
+        }
+        if (!server.containerId) {
+            return res.status(400).json({ error: "Server not created" });
+        }
+        const result = await NodeAPI.call(server.node.id, `/instances/${server.containerId}/files/delete-force`, "POST", { filePath });
+        res.json(result);
+    }
+    catch (error) {
+        console.error("Force delete error:", error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            message: "Failed to force delete",
+        });
+    }
+});
+app.post("/server/:id/files/read", requireAuth, async (req, res) => {
+    try {
+        const { filePath } = req.body;
+        const server = await prisma.server.findUnique({
+            where: { id: req.params.id },
+            include: { node: true },
+        });
+        if (!server || server.userId !== req.session.userId) {
+            return res.status(403).json({ error: "Access denied" });
+        }
+        if (!server.containerId) {
+            return res.status(400).json({ error: "Server not created" });
+        }
+        const result = await NodeAPI.readFile(server.id, filePath);
+        res.json(result);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+app.post("/server/:id/files/write", requireAuth, async (req, res) => {
+    try {
+        const { filePath, content } = req.body;
+        const server = await prisma.server.findUnique({
+            where: { id: req.params.id },
+            include: { node: true },
+        });
+        if (!server || server.userId !== req.session.userId) {
+            return res.status(403).json({ error: "Access denied" });
+        }
+        if (!server.containerId) {
+            return res.status(400).json({ error: "Server not created" });
+        }
+        const result = await NodeAPI.writeFile(server.id, filePath, content);
+        res.json(result);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+app.post("/server/:id/files/create", requireAuth, async (req, res) => {
+    try {
+        const { type, name, path: basePath } = req.body;
+        const server = await prisma.server.findUnique({
+            where: { id: req.params.id },
+            include: { node: true },
+        });
+        if (!server || server.userId !== req.session.userId) {
+            return res.status(403).json({ error: "Access denied" });
+        }
+        if (!server.containerId) {
+            return res.status(400).json({ error: "Server not created" });
+        }
+        const fullPath = `${basePath || ""}/${name}`.replace(/\/\//g, "/");
+        if (type === "file") {
+            const result = await NodeAPI.writeFile(server.id, fullPath, "");
+            res.json(result);
+        }
+        else if (type === "folder") {
+            res.json({
+                success: true,
+                message: "Folder creation would be implemented here",
+            });
+        }
+        else {
+            res.status(400).json({ error: "Invalid type" });
+        }
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+app.get("/server/:id/players", requireAuth, async (req, res) => {
+    const settings = await getSettings();
+    const user = await prisma.user.findUnique({
+        where: { id: req.session.userId },
+    });
+    const server = await prisma.server.findUnique({
+        where: { id: req.params.id },
+    });
+    const players = await prisma.player.findMany({
+        where: { serverId: req.params.id },
+    });
+    res.render("user/server/players", { settings, user, server, players });
+});
+app.get("/server/:id/plugins", requireAuth, async (req, res) => {
+    const settings = await getSettings();
+    const user = await prisma.user.findUnique({
+        where: { id: req.session.userId },
+    });
+    const server = await prisma.server.findUnique({
+        where: { id: req.params.id },
+        include: { node: true },
+    });
+    if (!server || server.userId !== req.session.userId) {
+        return res.redirect("/dashboard");
+    }
+    let plugins = [];
+    if (server.containerId) {
+        try {
+            const pluginsResponse = await NodeAPI.getServerFiles(server.id, "plugins");
+            if (pluginsResponse.success && pluginsResponse.items) {
+                plugins = pluginsResponse.items
+                    .filter((item) => item.name.endsWith(".jar"))
+                    .map((item) => ({
+                    name: item.name.replace(".jar", ""),
+                    fileName: item.name,
+                    size: item.size,
+                    path: item.path,
+                    installed: true,
+                    enabled: true,
+                    version: "1.0.0",
+                }));
+            }
+        }
+        catch (error) {
+            console.error("[Plugins] Error fetching plugins:", error);
+        }
+    }
+    res.render("user/server/plugins", {
+        settings,
+        user,
+        server,
+        plugins,
+        serverVersion: server.version || "1.20.1",
+    });
+});
+app.get("/server/:id/plugins/available", requireAuth, async (req, res) => {
+    try {
+        const { search = "", page = 1, source = "spigot" } = req.query;
+        const server = await prisma.server.findUnique({
+            where: { id: req.params.id },
+        });
+        if (!server || server.userId !== req.session.userId) {
+            return res.status(403).json({ error: "Access denied" });
+        }
+        let plugins = [];
+        if (source === "spigot") {
+            plugins = await fetchSpigotPlugins(search, parseInt(page));
+        }
+        else {
+            plugins = await fetchModrinthPlugins(search, parseInt(page));
+        }
+        res.json({ success: true, plugins });
+    }
+    catch (error) {
+        console.error("Error fetching available plugins:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+app.post("/server/:id/plugins/install", requireAuth, async (req, res) => {
+    try {
+        const { pluginUrl, pluginName, source = "spigot" } = req.body;
+        const server = await prisma.server.findUnique({
+            where: { id: req.params.id },
+            include: { node: true },
+        });
+        if (!server || server.userId !== req.session.userId) {
+            return res.status(403).json({ error: "Access denied" });
+        }
+        if (!server.containerId) {
+            return res.status(400).json({ error: "Server not created" });
+        }
+        let downloadUrl = pluginUrl;
+        if (source === "spigot" && !pluginUrl.includes("download")) {
+            downloadUrl = `https://api.spiget.org/v2/resources/${pluginUrl}/download`;
+        }
+        console.log(`[Plugin Install] Downloading from: ${downloadUrl}`);
+        const response = await axios_1.default.get(downloadUrl, {
+            responseType: "arraybuffer",
+            timeout: 30000,
+        });
+        const pluginData = Buffer.from(response.data).toString("base64");
+        const fileName = pluginName.endsWith(".jar")
+            ? pluginName
+            : `${pluginName}.jar`;
+        const result = await NodeAPI.uploadFile(server.id, "plugins", fileName, pluginData, "base64");
+        if (result.success) {
+            await prisma.consoleLog.create({
+                data: {
+                    serverId: server.id,
+                    message: `Plugin installed: ${pluginName}`,
+                    type: "info",
+                },
+            });
+            res.json({ success: true, message: "Plugin installed successfully" });
+        }
+        else {
+            res.status(500).json({ error: "Failed to upload plugin" });
+        }
+    }
+    catch (error) {
+        console.error("Error installing plugin:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+app.post("/server/:id/plugins/toggle", requireAuth, async (req, res) => {
+    try {
+        const { pluginName, enabled } = req.body;
+        const server = await prisma.server.findUnique({
+            where: { id: req.params.id },
+            include: { node: true },
+        });
+        if (!server || server.userId !== req.session.userId) {
+            return res.status(403).json({ error: "Access denied" });
+        }
+        if (!server.containerId) {
+            return res.status(400).json({ error: "Server not created" });
+        }
+        const oldName = enabled
+            ? `${pluginName}.jar.disabled`
+            : `${pluginName}.jar`;
+        const newName = enabled
+            ? `${pluginName}.jar`
+            : `${pluginName}.jar.disabled`;
+        try {
+            const checkResult = await NodeAPI.call(server.nodeId, `/instances/${server.containerId}/files/list`, "POST", { path: `plugins/${oldName}` });
+            if (checkResult.success) {
+                res.json({
+                    success: true,
+                    message: enabled ? "Plugin enabled" : "Plugin disabled",
+                });
+            }
+            else {
+                res.status(404).json({ error: "Plugin not found" });
+            }
+        }
+        catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+app.post("/server/:id/plugins/delete", requireAuth, async (req, res) => {
+    try {
+        const { pluginName } = req.body;
+        const server = await prisma.server.findUnique({
+            where: { id: req.params.id },
+            include: { node: true },
+        });
+        if (!server || server.userId !== req.session.userId) {
+            return res.status(403).json({ error: "Access denied" });
+        }
+        if (!server.containerId) {
+            return res.status(400).json({ error: "Server not created" });
+        }
+        const fileName = pluginName.endsWith(".jar")
+            ? pluginName
+            : `${pluginName}.jar`;
+        const disabledName = `${pluginName}.jar.disabled`;
+        try {
+            await NodeAPI.deleteFile(server.id, `plugins/${fileName}`);
+            await NodeAPI.deleteFile(server.id, `plugins/${disabledName}`);
+            res.json({ success: true, message: "Plugin deleted" });
+        }
+        catch (error) {
+            res.status(500).json({ error: error.message });
+        }
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+async function fetchSpigotPlugins(search, page) {
+    try {
+        const size = 20;
+        const url = search
+            ? `https://api.spiget.org/v2/search/resources/${encodeURIComponent(search)}?size=${size}&page=${page - 1}&field=name`
+            : `https://api.spiget.org/v2/resources/free?size=${size}&page=${page - 1}&sort=-downloads`;
+        const response = await axios_1.default.get(url, { timeout: 10000 });
+        return response.data;
+    }
+    catch (error) {
+        console.error("Error fetching from SpigotMC:", error);
+        return [];
+    }
+}
+async function fetchModrinthPlugins(search, page) {
+    try {
+        const limit = 20;
+        const offset = (page - 1) * limit;
+        const query = search || "minecraft plugin";
+        const response = await axios_1.default.get(`https://api.modrinth.com/v2/search?query=${encodeURIComponent(query)}&limit=${limit}&offset=${offset}&facets=[["project_type:mod"]]`, {
+            headers: { Accept: "application/json" },
+            timeout: 10000,
+        });
+        return response.data.hits || [];
+    }
+    catch (error) {
+        console.error("Error fetching from Modrinth:", error);
+        return [];
+    }
+}
+app.get("/server/:id/settings", requireAuth, async (req, res) => {
+    const settings = await getSettings();
+    const user = await prisma.user.findUnique({
+        where: { id: req.session.userId },
+    });
+    const server = await prisma.server.findUnique({
+        where: { id: req.params.id },
+    });
+    res.render("user/server/settings", { settings, user, server });
+});
+app.get("/server/:id/versions", requireAuth, async (req, res) => {
+    const settings = await getSettings();
+    const user = await prisma.user.findUnique({
+        where: { id: req.session.userId },
+    });
+    const server = await prisma.server.findUnique({
+        where: { id: req.params.id },
+        include: { node: true },
+    });
+    if (!server || server.userId !== req.session.userId) {
+        return res.redirect("/dashboard");
+    }
+    const serverTypes = [
+        {
+            id: "paper",
+            name: "PaperMC",
+            icon: "fas fa-copy",
+            color: "text-blue-400",
+        },
+        {
+            id: "purpur",
+            name: "Purpur",
+            icon: "fas fa-feather-alt",
+            color: "text-purple-400",
+        },
+        {
+            id: "spigot",
+            name: "Spigot",
+            icon: "fas fa-tools",
+            color: "text-yellow-400",
+        },
+        {
+            id: "vanilla",
+            name: "Vanilla",
+            icon: "fas fa-cube",
+            color: "text-green-400",
+        },
+        {
+            id: "bungee",
+            name: "BungeeCord",
+            icon: "fas fa-network-wired",
+            color: "text-cyan-400",
+        },
+        {
+            id: "velocity",
+            name: "Velocity",
+            icon: "fas fa-bolt",
+            color: "text-orange-400",
+        },
+    ];
+    const currentType = serverTypes.find((t) => t.id === (server.type || "paper")) ||
+        serverTypes[0];
+    let versions = [];
+    try {
+        if (server.node) {
+            // FIXED: Pass both nodeId and serverType
+            const versionsResponse = await NodeAPI.getServerVersions(server.node.id, server.type || "paper");
+            if (versionsResponse && versionsResponse.versions) {
+                versions = versionsResponse.versions;
+            }
+        }
+    }
+    catch (error) {
+        console.error("Error fetching versions:", error);
+        versions = [
+            "1.20.4",
+            "1.20.3",
+            "1.20.2",
+            "1.20.1",
+            "1.19.4",
+            "1.18.2",
+            "1.17.1",
+            "1.16.5",
+        ];
+    }
+    let paperBuilds = [];
+    let latestBuild = "";
+    if (server.type === "paper" && server.version && server.node) {
+        try {
+            // FIXED: Pass both nodeId and version
+            const buildsResponse = await NodeAPI.getPaperBuilds(server.node.id, server.version);
+            if (buildsResponse && buildsResponse.success) {
+                paperBuilds = buildsResponse.builds
+                    ? buildsResponse.builds.slice(0, 10)
+                    : [];
+                latestBuild = buildsResponse.latest || "";
+            }
+        }
+        catch (error) {
+            console.error("Error fetching Paper builds:", error);
+        }
+    }
+    res.render("user/server/versions", {
+        settings,
+        user,
+        server,
+        serverTypes,
+        currentType,
+        versions,
+        paperBuilds,
+        latestBuild,
+        formatBytes: (bytes) => {
+            if (bytes === 0)
+                return "0 Bytes";
+            const k = 1024;
+            const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+        },
+    });
+});
+app.post("/server/:id/versions/change", requireAuth, async (req, res) => {
+    try {
+        const { version, serverType, build } = req.body;
+        const server = await prisma.server.findUnique({
+            where: { id: req.params.id },
+        });
+        if (!server || server.userId !== req.session.userId) {
+            return res.status(403).json({ error: "Access denied" });
+        }
+        console.log(`Changing server ${server.name} to ${version} (${serverType})`);
+        const result = await NodeAPI.changeServerVersion(req.params.id, version, serverType, build);
+        if (result.success) {
+            await prisma.server.update({
+                where: { id: req.params.id },
+                data: {
+                    version: version,
+                    type: serverType || server.type,
+                },
+            });
+            await prisma.consoleLog.create({
+                data: {
+                    serverId: req.params.id,
+                    message: `Server version changed to ${version} (${serverType})`,
+                    type: "info",
+                },
+            });
+            res.json({
+                success: true,
+                message: "Version changed successfully",
+                redirect: `/server/${req.params.id}/versions?success=Version changed to ${version}`,
+            });
+        }
+        else {
+            res.status(500).json({ error: result.error });
+        }
+    }
+    catch (error) {
+        console.error("Error changing version:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+app.get("/server/:id/versions/fetch", requireAuth, async (req, res) => {
+    try {
+        const { type } = req.query;
+        const server = await prisma.server.findUnique({
+            where: { id: req.params.id },
+            include: { node: true },
+        });
+        if (!server || server.userId !== req.session.userId) {
+            return res.status(403).json({ error: "Access denied" });
+        }
+        if (!server.node) {
+            return res.status(400).json({ error: "Server has no node" });
+        }
+        const versions = await NodeAPI.getServerVersions(server.node.id, type || server.type || "paper");
+        res.json(versions);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+app.get("/server/:id/versions/builds", requireAuth, async (req, res) => {
+    try {
+        const { version } = req.query;
+        const server = await prisma.server.findUnique({
+            where: { id: req.params.id },
+            include: { node: true },
+        });
+        if (!server || server.userId !== req.session.userId) {
+            return res.status(403).json({ error: "Access denied" });
+        }
+        if (!server.node) {
+            return res.status(400).json({ error: "Server has no node" });
+        }
+        const builds = await NodeAPI.getPaperBuilds(server.node.id, version);
+        res.json(builds);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+app.post("/server/:id/start", requireAuth, async (req, res) => {
+    try {
+        const server = await prisma.server.findUnique({
+            where: { id: req.params.id },
+            include: { node: true },
+        });
+        if (!server || server.userId !== req.session.userId) {
+            return res.status(403).json({ error: "Access denied" });
+        }
+        if (!server.containerId) {
+            return res
+                .status(400)
+                .json({ error: "Server has no container ID. Please contact admin." });
+        }
+        console.log(`Starting server: ${server.name} (Container: ${server.containerId || "none"})`);
+        await NodeAPI.startServer(req.params.id);
+        await prisma.server.update({
+            where: { id: req.params.id },
+            data: { status: "running" },
+        });
+        await prisma.consoleLog.create({
+            data: {
+                serverId: req.params.id,
+                message: `Server started by user`,
+                type: "info",
+            },
+        });
+        res.json({ success: true, message: "Server started successfully" });
+    }
+    catch (error) {
+        console.error("Error starting server:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+app.post("/server/:id/stop", requireAuth, async (req, res) => {
+    try {
+        const server = await prisma.server.findUnique({
+            where: { id: req.params.id },
+            include: { node: true },
+        });
+        if (!server || server.userId !== req.session.userId) {
+            return res.status(403).json({ error: "Access denied" });
+        }
+        if (!server.containerId) {
+            return res.status(400).json({ error: "Server has no container ID" });
+        }
+        console.log(`Stopping server: ${server.name} (Container: ${server.containerId || "none"})`);
+        await NodeAPI.stopServer(req.params.id);
+        await prisma.server.update({
+            where: { id: req.params.id },
+            data: { status: "stopped" },
+        });
+        await prisma.consoleLog.create({
+            data: {
+                serverId: req.params.id,
+                message: `Server stopped by user`,
+                type: "info",
+            },
+        });
+        res.json({ success: true, message: "Server stopped successfully" });
+    }
+    catch (error) {
+        console.error("Error stopping server:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+app.post("/server/:id/restart", requireAuth, async (req, res) => {
+    try {
+        const server = await prisma.server.findUnique({
+            where: { id: req.params.id },
+            include: { node: true },
+        });
+        if (!server || server.userId !== req.session.userId) {
+            return res.status(403).json({ error: "Access denied" });
+        }
+        if (!server.containerId) {
+            return res.status(400).json({ error: "Server has no container ID" });
+        }
+        console.log(`Restarting server: ${server.name} (Container: ${server.containerId || "none"})`);
+        await NodeAPI.restartServer(req.params.id);
+        await prisma.consoleLog.create({
+            data: {
+                serverId: req.params.id,
+                message: `Server restarted by user`,
+                type: "info",
+            },
+        });
+        res.json({ success: true, message: "Server restarted successfully" });
+    }
+    catch (error) {
+        console.error("Error restarting server:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+app.get("/server/:id/logs", requireAuth, async (req, res) => {
+    try {
+        const server = await prisma.server.findUnique({
+            where: { id: req.params.id },
+            include: { node: true },
+        });
+        if (!server || server.userId !== req.session.userId) {
+            return res.status(403).json({ error: "Access denied" });
+        }
+        if (!server.containerId) {
+            return res.json({
+                success: false,
+                error: "Server has no container ID",
+                logs: "Server not created yet",
+            });
+        }
+        console.log(`[Logs] Getting logs for server: ${server.name} (Container: ${server.containerId})`);
+        try {
+            const daemonLogs = await NodeAPI.getServerLogs(req.params.id);
+            console.log(`[Logs] Daemon response:`, daemonLogs);
+            if (daemonLogs && daemonLogs.success !== false) {
+                return res.json({
+                    success: true,
+                    logs: daemonLogs.logs || "No logs from daemon",
+                    count: daemonLogs.count || 0,
+                    source: "daemon",
+                });
+            }
+            else {
+                const dbLogs = await prisma.consoleLog.findMany({
+                    where: { serverId: req.params.id },
+                    orderBy: { createdAt: "desc" },
+                    take: 100,
+                });
+                const logMessages = dbLogs.map((log) => log.message).join("\n");
+                return res.json({
+                    success: true,
+                    logs: logMessages || "No logs available",
+                    count: dbLogs.length,
+                    source: "database",
+                    warning: "Using panel database logs (daemon unavailable)",
+                });
+            }
+        }
+        catch (daemonError) {
+            console.error(`[Logs] Daemon error:`, daemonError.message);
+            const dbLogs = await prisma.consoleLog.findMany({
+                where: { serverId: req.params.id },
+                orderBy: { createdAt: "desc" },
+                take: 100,
+            });
+            const logMessages = dbLogs.map((log) => log.message).join("\n");
+            return res.json({
+                success: true,
+                logs: logMessages ||
+                    "No logs available (daemon error: " + daemonError.message + ")",
+                count: dbLogs.length,
+                source: "database-fallback",
+                error: daemonError.message,
+            });
+        }
+    }
+    catch (error) {
+        console.error("Error in logs endpoint:", error);
+        res.json({
+            success: false,
+            error: error.message,
+            logs: "Error fetching logs",
+        });
+    }
+});
+app.get("/server/:id/stats", requireAuth, async (req, res) => {
+    try {
+        const server = await prisma.server.findUnique({
+            where: { id: req.params.id },
+            include: { node: true },
+        });
+        if (!server || server.userId !== req.session.userId) {
+            return res.status(403).json({ error: "Access denied" });
+        }
+        if (!server.containerId) {
+            return res.json({
+                success: false,
+                error: "Server has no container ID",
+            });
+        }
+        const stats = await NodeAPI.getServerStats(req.params.id);
+        res.json({ success: true, stats });
+    }
+    catch (error) {
+        console.error("Error getting server stats:", error);
+        res.json({ success: false, error: error.message });
+    }
+});
+app.post("/server/:id/command", requireAuth, async (req, res) => {
+    try {
+        const { command } = req.body;
+        if (!command || command.trim() === "") {
+            return res.status(400).json({ error: "Command cannot be empty" });
+        }
+        const server = await prisma.server.findUnique({
+            where: { id: req.params.id },
+            include: { node: true },
+        });
+        if (!server || server.userId !== req.session.userId) {
+            return res.status(403).json({ error: "Access denied" });
+        }
+        if (!server.containerId) {
+            return res.status(400).json({ error: "Server has no container ID" });
+        }
+        console.log(`Running command on server ${server.name}: ${command}`);
+        const result = await NodeAPI.runCommand(req.params.id, command);
+        await prisma.consoleLog.create({
+            data: {
+                serverId: req.params.id,
+                message: `> ${command}`,
+                type: "command",
+            },
+        });
+        if (result.output) {
+            await prisma.consoleLog.create({
+                data: {
+                    serverId: req.params.id,
+                    message: result.output,
+                    type: "info",
+                },
+            });
+        }
+        res.json({ success: true, output: result.output });
+    }
+    catch (error) {
+        console.error("Error running command:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+app.post("/server/create", requireAuth, async (req, res) => {
+    try {
+        const { name, type, version, memory, cpu, nodeId } = req.body;
+        const node = await prisma.node.findUnique({ where: { id: nodeId } });
+        if (!node) {
+            return res.status(400).json({ error: "Node not found" });
+        }
+        const userServers = await prisma.server.count({
+            where: { userId: req.session.userId },
+        });
+        if (userServers >= 5) {
+            return res
+                .status(400)
+                .json({ error: "Server limit reached (5 servers max)" });
+        }
+        const containerName = `mc-${name
+            .toLowerCase()
+            .replace(/[^a-z0-9]/g, "-")}-${Date.now()}`;
+        const port = 25565 + userServers;
+        const containerData = {
+            name: containerName,
+            image: "itzg/minecraft-server",
+            memory: parseInt(memory) || 1024,
+            cpu: parseInt(cpu) || 100,
+            port: port,
+            env: ["EULA=TRUE", `VERSION=${version || "1.20.1"}`],
+        };
+        console.log(`Creating server container: ${containerName}`);
+        const containerResult = await NodeAPI.createServer(nodeId, containerData);
+        const userId = req.session.userId;
+        const server = await prisma.server.create({
+            data: {
+                name,
+                type: type || "minecraft",
+                version: version || "1.20.1",
+                port: port,
+                memory: parseInt(memory) || 1024,
+                cpu: parseInt(cpu) || 100,
+                containerId: containerResult.id,
+                nodeId,
+                userId: userId,
+                status: "stopped",
+            },
+        });
+        res.json({
+            success: true,
+            serverId: server.id,
+            message: "Server created successfully",
+        });
+    }
+    catch (error) {
+        console.error("Error creating server:", error);
+        res.status(500).json({ error: error.message });
+    }
+});
+app.post("/server/:id/files/upload", requireAuth, async (req, res) => {
+    try {
+        const { filePath, fileName, fileData, encoding } = req.body;
+        const server = await prisma.server.findUnique({
+            where: { id: req.params.id },
+            include: { node: true },
+        });
+        if (!server || server.userId !== req.session.userId) {
+            return res.status(403).json({ error: "Access denied" });
+        }
+        if (!server.containerId) {
+            return res.status(400).json({ error: "Server not created" });
+        }
+        if (encoding === "base64" && fileData.length > 15 * 1024 * 1024) {
+            return res.status(400).json({ error: "File too large (max 10MB)" });
+        }
+        const result = await NodeAPI.uploadFile(server.id, filePath, fileName, fileData, encoding || "base64");
+        res.json(result);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+app.post("/server/:id/files/delete", requireAuth, async (req, res) => {
+    try {
+        const { filePath } = req.body;
+        const server = await prisma.server.findUnique({
+            where: { id: req.params.id },
+            include: { node: true },
+        });
+        if (!server || server.userId !== req.session.userId) {
+            return res.status(403).json({ error: "Access denied" });
+        }
+        if (!server.containerId) {
+            return res.status(400).json({ error: "Server not created" });
+        }
+        const filesResponse = await NodeAPI.getServerFiles(server.id, filePath);
+        if (filesResponse.success && filesResponse.isFile !== true) {
+            return res
+                .status(400)
+                .json({ error: "Cannot delete directories via API yet" });
+        }
+        const result = await NodeAPI.deleteFile(server.id, filePath);
+        res.json(result);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// ============== ADMIN ROUTES ==============
+app.get("/admin/overview", requireAdmin, async (req, res) => {
+    const settings = await getSettings();
+    const users = await prisma.user.count();
+    const servers = await prisma.server.count();
+    const nodes = await prisma.node.count();
+    const recentLogs = await prisma.consoleLog.findMany({
+        orderBy: { createdAt: "desc" },
+        take: 10,
+    });
+    res.render("admin/overview/overview", {
+        settings,
+        user: req.user,
+        stats: { users, servers, nodes },
+        recentLogs,
+    });
+});
+app.get("/admin/nodes", requireAdmin, async (req, res) => {
+    const settings = await getSettings();
+    const nodes = await prisma.node.findMany({ include: { servers: true } });
+    res.render("admin/nodes/nodes", { settings, user: req.user, nodes });
+});
+app.get("/admin/nodes/create", requireAdmin, async (req, res) => {
+    const settings = await getSettings();
+    res.render("admin/nodes/create", { settings, user: req.user });
+});
+app.post("/admin/nodes/create", requireAdmin, async (req, res) => {
+    const { name, cpu, ram, location, host, port } = req.body;
+    const { v4: uuidv4 } = require("uuid");
+    await prisma.node.create({
+        data: {
+            name,
+            cpu: parseInt(cpu),
+            ram: parseInt(ram),
+            location,
+            host: host || "localhost",
+            port: parseInt(port) || 8080,
+            key: uuidv4(),
+        },
+    });
+    res.redirect("/admin/nodes?success=Node created successfully");
+});
+app.get("/admin/nodes/:id/edit", requireAdmin, async (req, res) => {
+    const settings = await getSettings();
+    const node = await prisma.node.findUnique({ where: { id: req.params.id } });
+    res.render("admin/nodes/edit", { settings, user: req.user, node });
+});
+app.post("/admin/nodes/:id/edit", requireAdmin, async (req, res) => {
+    const { name, cpu, ram, location, host, port } = req.body;
+    await prisma.node.update({
+        where: { id: req.params.id },
+        data: {
+            name,
+            cpu: parseInt(cpu),
+            ram: parseInt(ram),
+            location,
+            host: host || "localhost",
+            port: parseInt(port) || 8080,
+        },
+    });
+    res.redirect("/admin/nodes?success=Node updated");
+});
+app.post("/admin/nodes/:id/delete", requireAdmin, async (req, res) => {
+    await prisma.node.delete({ where: { id: req.params.id } });
+    res.redirect("/admin/nodes?success=Node deleted");
+});
+app.get("/admin/nodes/:id/test", requireAdmin, async (req, res) => {
+    try {
+        const node = await prisma.node.findUnique({
+            where: { id: req.params.nodeId || req.params.id },
+        });
+        if (!node) {
+            return res.json({ error: "Node not found" });
+        }
+        const testUrl = `http://${node.host || "localhost"}:${node.port || 8080}/health`;
+        console.log(`Testing connection to: ${testUrl}`);
+        console.log(`Using node key: ${node.key.substring(0, 20)}...`);
+        let response;
+        let usedHeader = "";
+        try {
+            response = await axios_1.default.get(testUrl, {
+                headers: { "x-node-key": node.key },
+                timeout: 5000,
+            });
+            usedHeader = "x-node-key";
+        }
+        catch (error1) {
+            console.log("x-node-key failed, trying x-api-key...");
+            try {
+                response = await axios_1.default.get(testUrl, {
+                    headers: { "x-api-key": node.key },
+                    timeout: 5000,
+                });
+                usedHeader = "x-api-key";
+            }
+            catch (error2) {
+                console.log("x-api-key failed, trying configure key...");
+                try {
+                    response = await axios_1.default.get(testUrl, {
+                        headers: { "x-api-key": "b29fcba0-adb0-4cc3-ac4f-4abe3579b96c" },
+                        timeout: 5000,
+                    });
+                    usedHeader = "x-api-key (configure)";
+                }
+                catch (error3) {
+                    throw new Error(`All authentication attempts failed. Last error: ${error3.message}`);
+                }
+            }
+        }
+        res.json({
+            success: true,
+            node: node.name,
+            host: node.host,
+            port: node.port,
+            testUrl,
+            usedHeader,
+            status: response.data,
+            servers: await prisma.server.count({ where: { nodeId: node.id } }),
+        });
+    }
+    catch (error) {
+        res.json({ success: false, error: error.message });
+    }
+});
+app.get("/admin/users", requireAdmin, async (req, res) => {
+    const settings = await getSettings();
+    const users = await prisma.user.findMany({ include: { servers: true } });
+    res.render("admin/users/users", { settings, user: req.user, users });
+});
+app.get("/admin/users/create", requireAdmin, async (req, res) => {
+    const settings = await getSettings();
+    res.render("admin/users/create", { settings, user: req.user });
+});
+app.post("/admin/users/create", requireAdmin, async (req, res) => {
+    const { username, email, password, isAdmin } = req.body;
+    await prisma.user.create({
+        data: {
+            username,
+            email,
+            password: bcryptjs_1.default.hashSync(password, 10),
+            isAdmin: isAdmin === "yes",
+        },
+    });
+    res.redirect("/admin/users?success=User created");
+});
+app.post("/admin/users/:id/delete", requireAdmin, async (req, res) => {
+    await prisma.user.delete({ where: { id: req.params.id } });
+    res.redirect("/admin/users?success=User deleted");
+});
+app.get("/admin/servers", requireAdmin, async (req, res) => {
+    const settings = await getSettings();
+    const servers = await prisma.server.findMany({
+        include: { node: true, user: true },
+    });
+    res.render("admin/servers/servers", { settings, user: req.user, servers });
+});
+app.get("/admin/servers/create", requireAdmin, async (req, res) => {
+    const settings = await getSettings();
+    const nodes = await prisma.node.findMany();
+    const users = await prisma.user.findMany();
+    res.render("admin/servers/create", {
+        settings,
+        user: req.user,
+        nodes,
+        users,
+    });
+});
+app.post("/admin/servers/create", requireAdmin, async (req, res) => {
+    const { name, type, version, port, memory, cpu, nodeId, userId } = req.body;
+    try {
+        const node = await prisma.node.findUnique({ where: { id: nodeId } });
+        if (!node)
+            throw new Error("Node not found");
+        const containerName = `mc-${name
+            .toLowerCase()
+            .replace(/[^a-z0-9]/g, "-")}-${Date.now()}`;
+        const containerData = {
+            name: containerName,
+            image: "itzg/minecraft-server",
+            memory: parseInt(memory),
+            cpu: parseInt(cpu),
+            port: parseInt(port),
+            env: ["EULA=TRUE", `VERSION=${version || "1.20.1"}`],
+        };
+        console.log(`[Admin] Creating server container: ${containerName}`);
+        console.log(`[Admin] Using node: ${node.name} (${node.host}:${node.port})`);
+        const containerResult = await NodeAPI.createServer(nodeId, containerData);
+        const server = await prisma.server.create({
+            data: {
+                name,
+                type: type || "minecraft",
+                version: version || "1.20.1",
+                port: parseInt(port),
+                memory: parseInt(memory),
+                cpu: parseInt(cpu),
+                containerId: containerResult.id,
+                nodeId,
+                userId: userId,
+                status: "stopped",
+            },
+        });
+        res.redirect("/admin/servers?success=Server created with Docker container");
+    }
+    catch (error) {
+        console.error("Error creating server:", error);
+        res.redirect(`/admin/servers/create?error=${encodeURIComponent(error.message)}`);
+    }
+});
+app.post("/admin/servers/:id/start", requireAdmin, async (req, res) => {
+    try {
+        const server = await prisma.server.findUnique({
+            where: { id: req.params.id },
+            include: { node: true },
+        });
+        if (!server) {
+            return res.status(404).json({ error: "Server not found" });
+        }
+        if (!server.containerId) {
+            return res.status(400).json({ error: "Server has no container ID" });
+        }
+        console.log(`[Admin] Starting server: ${server.name}`);
+        await NodeAPI.startServer(req.params.id);
+        await prisma.server.update({
+            where: { id: req.params.id },
+            data: { status: "running" },
+        });
+        res.json({ success: true, message: "Server started" });
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+app.post("/admin/servers/:id/stop", requireAdmin, async (req, res) => {
+    try {
+        const server = await prisma.server.findUnique({
+            where: { id: req.params.id },
+            include: { node: true },
+        });
+        if (!server) {
+            return res.status(404).json({ error: "Server not found" });
+        }
+        if (!server.containerId) {
+            return res.status(400).json({ error: "Server has no container ID" });
+        }
+        console.log(`[Admin] Stopping server: ${server.name}`);
+        await NodeAPI.stopServer(req.params.id);
+        await prisma.server.update({
+            where: { id: req.params.id },
+            data: { status: "stopped" },
+        });
+        res.json({ success: true, message: "Server stopped" });
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+app.post("/admin/servers/:id/restart", requireAdmin, async (req, res) => {
+    try {
+        const server = await prisma.server.findUnique({
+            where: { id: req.params.id },
+            include: { node: true },
+        });
+        if (!server) {
+            return res.status(404).json({ error: "Server not found" });
+        }
+        if (!server.containerId) {
+            return res.status(400).json({ error: "Server has no container ID" });
+        }
+        console.log(`[Admin] Restarting server: ${server.name}`);
+        await NodeAPI.restartServer(req.params.id);
+        res.json({ success: true, message: "Server restarted" });
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+app.post("/admin/servers/:id/delete", requireAdmin, async (req, res) => {
+    try {
+        const server = await prisma.server.findUnique({
+            where: { id: req.params.id },
+            include: { node: true },
+        });
+        if (!server) {
+            return res.status(404).json({ error: "Server not found" });
+        }
+        if (server.containerId) {
+            try {
+                await NodeAPI.call(server.nodeId, `/instances/${server.containerId}`, "DELETE");
+            }
+            catch (error) {
+                console.warn(`Could not delete container ${server.containerId}:`, error.message);
+            }
+        }
+        await prisma.server.delete({ where: { id: req.params.id } });
+        res.json({ success: true, message: "Server deleted" });
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+app.get("/admin/settings", requireAdmin, async (req, res) => {
+    const settings = await getSettings();
+    res.render("admin/settings/settings", {
+        settings,
+        user: req.user,
+        success: req.query.success,
+    });
+});
+app.post("/admin/settings", requireAdmin, async (req, res) => {
+    const { panelName, panelPort, panelIcon } = req.body;
+    const settings = await getSettings();
+    await prisma.settings.update({
+        where: { id: settings.id },
+        data: {
+            panelName,
+            panelPort: parseInt(panelPort),
+            panelIcon,
+        },
+    });
+    res.redirect("/admin/settings?success=Settings saved");
+});
+// ============== API ROUTES ==============
+app.get("/api/v1/nodes", async (req, res) => {
+    const nodes = await prisma.node.findMany();
+    res.json(nodes);
+});
+app.get("/api/v1/servers", async (req, res) => {
+    const servers = await prisma.server.findMany({ include: { node: true } });
+    res.json(servers);
+});
+app.get("/api/v1/health", async (req, res) => {
+    const nodeCount = await prisma.node.count();
+    const serverCount = await prisma.server.count();
+    const userCount = await prisma.user.count();
+    res.json({
+        status: "ok",
+        version: "1.0.0",
+        stats: {
+            nodes: nodeCount,
+            servers: serverCount,
+            users: userCount,
+        },
+        timestamp: new Date().toISOString(),
+    });
+});
+app.get("/api/debug/node-connection", async (req, res) => {
+    try {
+        const nodes = await prisma.node.findMany();
+        const results = [];
+        for (const node of nodes) {
+            try {
+                const response = await axios_1.default.get(`http://${node.host || "localhost"}:${node.port || 8080}/health`, {
+                    headers: { "x-node-key": node.key },
+                    timeout: 3000,
+                });
+                results.push({
+                    node: node.name,
+                    status: "online",
+                    data: response.data,
+                });
+            }
+            catch (error) {
+                results.push({
+                    node: node.name,
+                    status: "offline",
+                    error: error.message,
+                });
+            }
+        }
+        res.json({ nodes: results });
+    }
+    catch (error) {
+        res.json({ error: error.message });
+    }
+});
+// ============== WEBSOCKET ==============
+io.on("connection", (socket) => {
+    console.log("Panel WebSocket: Client connected:", socket.id);
+    socket.on("join-server", (serverId) => {
+        socket.join(`server-${serverId}`);
+        console.log(`Panel: Client ${socket.id} joined server ${serverId}`);
+    });
+    socket.on("console-command", async (data) => {
+        const { serverId, command } = data;
+        await prisma.consoleLog.create({
+            data: { serverId, message: `> ${command}`, type: "command" },
+        });
+        try {
+            const result = await NodeAPI.runCommand(serverId, command);
+            io.to(`server-${serverId}`).emit("console-output", {
+                message: result.output || "Command executed",
+                type: "response",
+            });
+            await prisma.consoleLog.create({
+                data: {
+                    serverId,
+                    message: result.output || "Command executed",
+                    type: "info",
+                },
+            });
+        }
+        catch (error) {
+            const errorMessage = `Error: ${error.message}`;
+            io.to(`server-${serverId}`).emit("console-output", {
+                message: errorMessage,
+                type: "error",
+            });
+            await prisma.consoleLog.create({
+                data: {
+                    serverId,
+                    message: errorMessage,
+                    type: "error",
+                },
+            });
+        }
+    });
+    socket.on("disconnect", () => {
+        console.log("Panel WebSocket: Client disconnected:", socket.id);
+    });
+});
+// ============== ERROR HANDLING ==============
+app.use(async (req, res) => {
+    const settings = await getSettings();
+    const isAuthenticated = !!req.session.userId;
+    let user = null;
+    if (isAuthenticated) {
+        user = await prisma.user.findUnique({
+            where: { id: req.session.userId },
+            select: { id: true, username: true, email: true, isAdmin: true },
+        });
+    }
+    res.status(404).render("error/500", {
+        settings,
+        errorType: "404",
+        originalUrl: req.originalUrl,
+        method: req.method,
+        isAuthenticated,
+        user,
+        sessionId: req.session.id,
+        message: "Page not found",
+    });
+});
+app.use(async (error, req, res, next) => {
+    console.error("Server error:", error);
+    const settings = await getSettings();
+    const isAuthenticated = !!req.session.userId;
+    let user = null;
+    if (isAuthenticated) {
+        user = await prisma.user.findUnique({
+            where: { id: req.session.userId },
+            select: { id: true, username: true, email: true, isAdmin: true },
+        });
+    }
+    let errorType = "500";
+    let statusCode = 500;
+    let message = error.message || "Internal server error";
+    if (error.status === 401) {
+        errorType = "auth";
+        statusCode = 401;
+        message = "Authentication required";
+    }
+    else if (error.status === 403) {
+        errorType = "admin";
+        statusCode = 403;
+        message = "Admin access required";
+    }
+    else if (error.status === 404) {
+        errorType = "404";
+        statusCode = 404;
+        message = "Page not found";
+    }
+    res.status(statusCode).render("error/500", {
+        settings,
+        errorType,
+        message,
+        originalUrl: req.originalUrl,
+        method: req.method,
+        isAuthenticated,
+        user,
+        sessionId: req.session.id,
+    });
+});
+// ============== START SERVER ==============
+const PORT = process.env.PANEL_PORT || 3000;
+httpServer.listen(PORT, async () => {
+    console.log(`
+╔═══════════════════════════════════════════════════════════════╗
+║                    ZyperPanel Started                          ║
+║              Running on http://localhost:${PORT}                 ║
+╚═══════════════════════════════════════════════════════════════╝
+  `);
+    try {
+        console.log("Starting node status monitor...");
+        await (0, statusChecker_1.checkNodeStatus)();
+        console.log("Node status monitor started");
+        await ensureDefaultAdmin();
+        await ensureDefaultNode();
+        dotenv_1.default.config();
+        console.log("ENV ADMIN:", {
+            email: process.env.DEFAULT_ADMIN_EMAIL,
+            username: process.env.DEFAULT_ADMIN_USERNAME,
+            password: process.env.DEFAULT_ADMIN_PASSWORD,
+        });
+        setInterval(async () => {
+            try {
+                await (0, statusChecker_1.checkNodeStatus)();
+            }
+            catch (error) {
+                console.error("Error in scheduled status check:", error);
+            }
+        }, 30000);
+    }
+    catch (error) {
+        console.error("Failed to start node status monitor:", error);
+    }
+});

@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Servers - <%= settings.panelName %></title>
+    <link rel="icon" href="/falcon.ico" />
+
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="bg-gray-900 text-white min-h-screen">
+    <div class="flex">
+      <aside class="w-64 min-h-screen bg-gray-800 border-r border-gray-700 p-4">
+        <div class="flex items-center gap-3 mb-8">
+          <div
+            class="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600"
+          ></div>
+          <span class="font-bold"><%= settings.panelName %></span>
+        </div>
+        <nav class="space-y-2">
+          <a
+            href="/admin/overview"
+            class="block px-4 py-2 text-gray-400 hover:bg-gray-700 rounded-lg"
+            >Overview</a
+          >
+          <a
+            href="/admin/nodes"
+            class="block px-4 py-2 text-gray-400 hover:bg-gray-700 rounded-lg"
+            >Nodes</a
+          >
+          <a
+            href="/admin/servers"
+            class="block px-4 py-2 bg-violet-500/20 text-violet-400 rounded-lg"
+            >Servers</a
+          >
+          <a
+            href="/admin/users"
+            class="block px-4 py-2 text-gray-400 hover:bg-gray-700 rounded-lg"
+            >Users</a
+          >
+          <a
+            href="/admin/settings"
+            class="block px-4 py-2 text-gray-400 hover:bg-gray-700 rounded-lg"
+            >Settings</a
+          >
+        </nav>
+      </aside>
+
+      <main class="flex-1 p-8">
+        <div class="flex justify-between items-center mb-8">
+          <h1 class="text-3xl font-bold">Servers</h1>
+          <a
+            href="/admin/servers/create"
+            class="px-4 py-2 bg-violet-500 rounded-lg hover:bg-violet-600"
+            >Create Server</a
+          >
+        </div>
+
+        <div
+          class="bg-gray-800/50 rounded-xl border border-gray-700/50 overflow-hidden"
+        >
+          <table class="w-full">
+            <thead class="bg-gray-700/50">
+              <tr>
+                <th class="px-6 py-3 text-left text-sm">Name</th>
+                <th class="px-6 py-3 text-left text-sm">Node</th>
+                <th class="px-6 py-3 text-left text-sm">Owner</th>
+                <th class="px-6 py-3 text-left text-sm">Status</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-700/50">
+              <% servers.forEach(s => { %>
+              <tr>
+                <td class="px-6 py-4"><%= s.name %></td>
+                <td class="px-6 py-4 text-gray-400"><%= s.node.name %></td>
+                <td class="px-6 py-4 text-gray-400"><%= s.user.username %></td>
+                <td class="px-6 py-4">
+                  <span
+                    class="px-2 py-1 rounded text-xs <%= s.status === 'running' ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400' %>"
+                    ><%= s.status %></span
+                  >
+                </td>
+              </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      </main>
+    </div>
+  </body>
+</html>

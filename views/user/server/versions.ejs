@@ -1,0 +1,834 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Version Manager - <%= server.name %></title>
+    <link rel="icon" href="/falcon.ico" />
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+    />
+    <style>
+      .modal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 1000;
+      }
+      .modal.active {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .modal-content {
+        background: #1f2937;
+        border-radius: 12px;
+        padding: 24px;
+        min-width: 500px;
+        max-width: 700px;
+        max-height: 80vh;
+        overflow-y: auto;
+      }
+
+      .server-type-card {
+        transition: all 0.3s;
+        border: 2px solid transparent;
+      }
+
+      .server-type-card:hover {
+        transform: translateY(-2px);
+        border-color: #6366f1;
+      }
+
+      .server-type-card.active {
+        border-color: #6366f1;
+        background: rgba(99, 102, 241, 0.1);
+      }
+
+      .version-card {
+        transition: all 0.2s;
+        border: 2px solid transparent;
+      }
+
+      .version-card:hover {
+        border-color: #6366f1;
+        background: rgba(99, 102, 241, 0.05);
+      }
+
+      .version-card.active {
+        border-color: #10b981;
+        background: rgba(16, 185, 129, 0.1);
+      }
+
+      .loading-spinner {
+        width: 40px;
+        height: 40px;
+        border: 3px solid #374151;
+        border-top: 3px solid #6366f1;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin: 0 auto;
+      }
+
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+
+      .notification {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 15px 25px;
+        border-radius: 8px;
+        color: white;
+        font-weight: 600;
+        z-index: 1001;
+        transform: translateX(120%);
+        transition: transform 0.3s;
+        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+      }
+
+      .notification.show {
+        transform: translateX(0);
+      }
+
+      .notification.success {
+        background: linear-gradient(135deg, #10b981, #059669);
+        border-left: 4px solid #047857;
+      }
+
+      .notification.error {
+        background: linear-gradient(135deg, #ef4444, #dc2626);
+        border-left: 4px solid #b91c1c;
+      }
+    </style>
+  </head>
+  <body class="bg-gray-900 text-white min-h-screen">
+    <nav class="bg-gray-800 border-b border-gray-700">
+      <div class="max-w-7xl mx-auto px-6 h-16 flex items-center gap-4">
+        <a
+          href="/server/<%= server.id %>"
+          class="text-gray-400 hover:text-white"
+          >← Back to Server</a
+        >
+        <span class="text-xl font-bold"
+          ><%= server.name %> - Version Manager</span
+        >
+      </div>
+    </nav>
+
+    <main class="max-w-7xl mx-auto px-6 py-8">
+      <!-- Current Version Card -->
+      <div class="bg-gray-800/50 rounded-xl border border-gray-700/50 p-6 mb-8">
+        <div class="flex justify-between items-center">
+          <div>
+            <p class="text-gray-400 text-sm mb-1">Current Configuration</p>
+            <div class="flex items-center gap-4">
+              <div class="flex items-center gap-2">
+                <i class="fas fa-server <%= currentType.color %>"></i>
+                <span class="text-2xl font-bold"><%= currentType.name %></span>
+              </div>
+              <div class="h-6 w-px bg-gray-700"></div>
+              <div>
+                <span class="text-lg font-semibold"
+                  >v<%= server.version %></span
+                >
+                <% if (server.type === 'paper' && server.build && server.build
+                !== 'latest') { %>
+                <span class="text-sm text-gray-400 ml-2"
+                  >(Build <%= server.build %>)</span
+                >
+                <% } %>
+              </div>
+            </div>
+            <p class="text-gray-400 text-sm mt-2">
+              <i class="fas fa-info-circle mr-1"></i>
+              Changing versions will restart your server and may cause world
+              compatibility issues.
+            </p>
+          </div>
+          <button
+            onclick="showChangeVersionModal()"
+            class="px-6 py-3 bg-violet-600 hover:bg-violet-700 rounded-lg font-semibold"
+          >
+            <i class="fas fa-exchange-alt mr-2"></i>Change Version
+          </button>
+        </div>
+      </div>
+
+      <!-- Server Type Selection -->
+      <div class="mb-8">
+        <h2 class="text-xl font-semibold mb-4">Server Types</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <% serverTypes.forEach(type => { %>
+          <div
+            class="server-type-card <%= server.type === type.id ? 'active' : '' %> p-5 rounded-xl border border-gray-700/50 bg-gray-800/30 cursor-pointer"
+            onclick="selectServerType('<%= type.id %>')"
+          >
+            <div class="flex items-center gap-3 mb-3">
+              <div
+                class="w-10 h-10 rounded-lg <%= type.color.replace('text-', 'bg-') %>/20 flex items-center justify-center"
+              >
+                <i class="<%= type.icon %> <%= type.color %> text-lg"></i>
+              </div>
+              <div>
+                <h3 class="font-semibold"><%= type.name %></h3>
+                <p class="text-xs text-gray-400">
+                  <% if (type.id === 'paper') { %> High-performance Spigot fork
+                  <% } else if (type.id === 'purpur') { %> Paper fork with more
+                  optimizations <% } else if (type.id === 'spigot') { %> Most
+                  popular Minecraft server <% } else if (type.id === 'vanilla')
+                  { %> Official Minecraft server <% } else if (type.id ===
+                  'bungee') { %> Proxy for connecting servers <% } else if
+                  (type.id === 'velocity') { %> Modern high-performance proxy <%
+                  } %>
+                </p>
+              </div>
+            </div>
+            <div class="text-xs text-gray-500">
+              <i class="fas fa-check mr-1"></i>
+              <% if (type.id === 'paper' || type.id === 'purpur') { %> Plugin
+              support, Regular updates <% } else if (type.id === 'spigot') { %>
+              Plugin support, Widely compatible <% } else if (type.id ===
+              'vanilla') { %> Official, Stable, No plugins <% } else if (type.id
+              === 'bungee') { %> Network servers together <% } else if (type.id
+              === 'velocity') { %> Fast, Modern, Secure <% } %>
+            </div>
+          </div>
+          <% }) %>
+        </div>
+      </div>
+
+      <!-- Available Versions -->
+      <div class="mb-8">
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-xl font-semibold">Available Versions</h2>
+          <div class="flex gap-2">
+            <button
+              onclick="refreshVersions()"
+              class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg"
+            >
+              <i class="fas fa-sync-alt mr-2"></i>Refresh
+            </button>
+            <select
+              id="version-filter"
+              class="px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg"
+              onchange="filterVersions()"
+            >
+              <option value="all">All Versions</option>
+              <option value="1.20">1.20.x</option>
+              <option value="1.19">1.19.x</option>
+              <option value="1.18">1.18.x</option>
+              <option value="1.17">1.17.x</option>
+              <option value="1.16">1.16.x</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="versions-container">
+          <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+            <% versions.forEach(version => { %>
+            <div
+              class="version-card <%= version === server.version ? 'active' : '' %> p-4 rounded-lg border border-gray-700/50 text-center cursor-pointer"
+              onclick="selectVersion('<%= version %>')"
+            >
+              <div class="font-semibold mb-1"><%= version %></div>
+              <% if (version === server.version) { %>
+              <div
+                class="text-xs px-2 py-1 bg-green-900/30 text-green-400 rounded-full inline-block"
+              >
+                Current
+              </div>
+              <% } %>
+            </div>
+            <% }) %>
+          </div>
+        </div>
+      </div>
+
+      <!-- Paper Builds (Only for Paper servers) -->
+      <% if (server.type === 'paper' && paperBuilds.length > 0) { %>
+      <div class="mb-8">
+        <h2 class="text-xl font-semibold mb-4">
+          Paper Builds for <%= server.version %>
+        </h2>
+        <div class="text-sm text-gray-400 mb-3">
+          <i class="fas fa-info-circle mr-1"></i>
+          Paper releases frequent builds. Latest is recommended, but you can
+          choose a specific build.
+        </div>
+        <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+          <div
+            class="version-card <%= server.build === 'latest' ? 'active' : '' %> p-4 rounded-lg border border-gray-700/50 text-center cursor-pointer"
+            onclick="selectBuild('latest')"
+          >
+            <div class="font-semibold mb-1">Latest</div>
+            <div class="text-xs text-gray-400">(Build <%= latestBuild %>)</div>
+            <% if (server.build === 'latest' || !server.build) { %>
+            <div
+              class="text-xs px-2 py-1 bg-green-900/30 text-green-400 rounded-full inline-block mt-2"
+            >
+              Current
+            </div>
+            <% } %>
+          </div>
+
+          <% paperBuilds.forEach(build => { %>
+          <div
+            class="version-card <%= server.build === build.toString() ? 'active' : '' %> p-4 rounded-lg border border-gray-700/50 text-center cursor-pointer"
+            onclick="selectBuild('<%= build %>')"
+          >
+            <div class="font-semibold mb-1">Build <%= build %></div>
+            <% if (server.build === build.toString()) { %>
+            <div
+              class="text-xs px-2 py-1 bg-green-900/30 text-green-400 rounded-full inline-block mt-2"
+            >
+              Current
+            </div>
+            <% } %>
+          </div>
+          <% }) %>
+        </div>
+      </div>
+      <% } %>
+
+      <!-- Version History -->
+      <div class="bg-gray-800/30 rounded-xl border border-gray-700/50 p-6">
+        <h2 class="text-xl font-semibold mb-4">Version Change History</h2>
+        <div class="text-gray-400 text-sm">
+          <i class="fas fa-exclamation-triangle mr-2 text-yellow-400"></i>
+          <span>Before changing versions, consider:</span>
+        </div>
+        <ul class="mt-3 space-y-2 text-sm text-gray-400">
+          <li class="flex items-start gap-2">
+            <i class="fas fa-database mt-1"></i>
+            <span>Worlds may not be compatible between major versions</span>
+          </li>
+          <li class="flex items-start gap-2">
+            <i class="fas fa-plug mt-1"></i>
+            <span>Plugins may need updates for new versions</span>
+          </li>
+          <li class="flex items-start gap-2">
+            <i class="fas fa-redo mt-1"></i>
+            <span>Server will be restarted automatically</span>
+          </li>
+          <li class="flex items-start gap-2">
+            <i class="fas fa-download mt-1"></i>
+            <span>New server JAR will be downloaded</span>
+          </li>
+        </ul>
+      </div>
+    </main>
+
+    <!-- Change Version Modal -->
+    <div id="change-version-modal" class="modal">
+      <div class="modal-content">
+        <div id="modalContent"></div>
+      </div>
+    </div>
+
+    <!-- Notification -->
+    <div id="notification" class="notification"></div>
+
+    <script>
+      // State
+      let selectedServerType = "<%= server.type %>";
+      let selectedVersion = "<%= server.version %>";
+      let selectedBuild = '<%= server.build || "latest" %>';
+      let isLoading = false;
+
+      // Show change version modal
+      function showChangeVersionModal() {
+        const modalContent = document.getElementById("modalContent");
+        modalContent.innerHTML = `
+          <div class="flex justify-between items-center mb-6">
+            <h3 class="text-xl font-bold">
+              <i class="fas fa-exchange-alt mr-2"></i>Change Server Version
+            </h3>
+            <button onclick="closeModal()" class="text-gray-400 hover:text-white">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+          
+          <div class="mb-6">
+            <div class="bg-yellow-900/20 border border-yellow-700/50 rounded-lg p-4 mb-4">
+              <div class="flex items-start gap-3">
+                <i class="fas fa-exclamation-triangle text-yellow-400 text-lg mt-0.5"></i>
+                <div>
+                  <h4 class="font-semibold text-yellow-300 mb-1">Important Notice</h4>
+                  <p class="text-sm text-yellow-200/80">
+                    Changing versions will restart your server. 
+                    Make sure to backup your world and plugins first.
+                  </p>
+                </div>
+              </div>
+            </div>
+            
+            <div class="grid grid-cols-2 gap-4 mb-4">
+              <div>
+                <label class="block text-gray-400 mb-2">Current Version</label>
+                <div class="px-4 py-3 bg-gray-800/50 rounded-lg">
+                  <div class="font-semibold"><%= currentType.name %> v<%= server.version %></div>
+                  <div class="text-sm text-gray-400"><%= server.build ? 'Build ' + server.build : 'Latest build' %></div>
+                </div>
+              </div>
+              
+              <div>
+                <label class="block text-gray-400 mb-2">New Version</label>
+                <div class="px-4 py-3 bg-gray-800/50 rounded-lg">
+                  <div class="font-semibold" id="new-version-display">
+                    <%= currentType.name %> v<%= server.version %>
+                  </div>
+                  <div class="text-sm text-gray-400" id="new-build-display">
+                    <%= server.build ? 'Build ' + server.build : 'Latest build' %>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div class="text-sm text-gray-400 mb-6">
+              <i class="fas fa-info-circle mr-1"></i>
+              Changing from <strong><%= server.type %></strong> to <strong id="new-type-display"><%= server.type %></strong>
+            </div>
+          </div>
+          
+          <div class="flex justify-end gap-3">
+            <button onclick="closeModal()" 
+                    class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors">
+              Cancel
+            </button>
+            <button onclick="confirmVersionChange()" 
+                    class="px-4 py-2 bg-violet-600 hover:bg-violet-700 rounded-lg transition-colors font-semibold">
+              <i class="fas fa-sync-alt mr-2"></i>Change Version
+            </button>
+          </div>
+        `;
+
+        document.getElementById("change-version-modal").classList.add("active");
+
+        // Update display
+        updateVersionDisplay();
+      }
+
+      // Select server type
+      async function selectServerType(type) {
+        if (isLoading || selectedServerType === type) return;
+
+        selectedServerType = type;
+
+        // Update UI
+        document.querySelectorAll(".server-type-card").forEach((card) => {
+          card.classList.remove("active");
+        });
+        event.currentTarget.classList.add("active");
+
+        // Fetch versions for this type
+        await fetchVersions(type);
+      }
+
+      // Select version
+      function selectVersion(version) {
+        selectedVersion = version;
+
+        // Update UI
+        document.querySelectorAll(".version-card").forEach((card) => {
+          card.classList.remove("active");
+        });
+        event.currentTarget.classList.add("active");
+
+        // If this is a Paper server, fetch builds
+        if (selectedServerType === "paper") {
+          fetchPaperBuilds(version);
+        }
+
+        updateVersionDisplay();
+      }
+
+      // Select build (Paper only)
+      function selectBuild(build) {
+        selectedBuild = build;
+
+        // Update UI
+        document.querySelectorAll(".version-card").forEach((card) => {
+          card.classList.remove("active");
+        });
+        event.currentTarget.classList.add("active");
+
+        updateVersionDisplay();
+      }
+
+      // Fetch versions for a server type
+      async function fetchVersions(type) {
+        if (isLoading) return;
+
+        isLoading = true;
+        const container = document.getElementById("versions-container");
+        container.innerHTML = `
+          <div class="col-span-full text-center py-8">
+            <div class="loading-spinner"></div>
+            <p class="mt-4 text-gray-400">Loading ${getTypeName(
+              type
+            )} versions...</p>
+          </div>
+        `;
+
+        try {
+          const response = await fetch(
+            `/server/<%= server.id %>/versions/fetch?type=${encodeURIComponent(
+              type
+            )}`
+          );
+          const data = await response.json();
+
+          if (data.success) {
+            renderVersions(data.versions, type);
+            // Auto-select first version if none selected
+            if (data.versions.length > 0 && !selectedVersion) {
+              selectedVersion = data.versions[0];
+              if (type === "paper") {
+                fetchPaperBuilds(selectedVersion);
+              }
+            }
+            updateVersionDisplay();
+          } else {
+            throw new Error(data.error || "Failed to load versions");
+          }
+        } catch (error) {
+          console.error("Error fetching versions:", error);
+
+          // Use fallback versions
+          let fallbackVersions = [];
+          switch (type) {
+            case "paper":
+            case "purpur":
+            case "spigot":
+            case "vanilla":
+              fallbackVersions = [
+                "1.20.4",
+                "1.20.3",
+                "1.20.2",
+                "1.20.1",
+                "1.19.4",
+                "1.18.2",
+              ];
+              break;
+            case "bungee":
+              fallbackVersions = ["latest"];
+              break;
+            case "velocity":
+              fallbackVersions = ["3.2.0", "3.1.2", "3.1.1", "3.1.0"];
+              break;
+            default:
+              fallbackVersions = ["1.20.1", "1.19.4", "1.18.2"];
+          }
+
+          renderVersions(fallbackVersions, type);
+
+          showNotification(
+            `Using cached versions (API error: ${error.message})`,
+            "error"
+          );
+        } finally {
+          isLoading = false;
+        }
+      }
+
+      // Fetch Paper builds
+      async function fetchPaperBuilds(version) {
+        try {
+          const response = await fetch(
+            `/server/<%= server.id %>/versions/builds?version=${encodeURIComponent(
+              version
+            )}`
+          );
+          const data = await response.json();
+
+          if (data.success && data.builds) {
+            // This is where you would update the Paper builds UI
+            console.log("Paper builds loaded:", data.builds);
+            selectedBuild = data.latest || "latest";
+          }
+        } catch (error) {
+          console.error("Error fetching Paper builds:", error);
+          selectedBuild = "latest";
+        }
+      }
+
+      // Render versions
+      function renderVersions(versions, type) {
+        const container = document.getElementById("versions-container");
+        const typeInfo = {
+          paper: {
+            name: "PaperMC",
+            color: "text-blue-400",
+            icon: "fas fa-copy",
+          },
+          purpur: {
+            name: "Purpur",
+            color: "text-purple-400",
+            icon: "fas fa-feather-alt",
+          },
+          spigot: {
+            name: "Spigot",
+            color: "text-yellow-400",
+            icon: "fas fa-tools",
+          },
+          vanilla: {
+            name: "Vanilla",
+            color: "text-green-400",
+            icon: "fas fa-cube",
+          },
+          bungee: {
+            name: "BungeeCord",
+            color: "text-cyan-400",
+            icon: "fas fa-network-wired",
+          },
+          velocity: {
+            name: "Velocity",
+            color: "text-orange-400",
+            icon: "fas fa-bolt",
+          },
+        }[type] || {
+          name: type,
+          color: "text-gray-400",
+          icon: "fas fa-server",
+        };
+
+        container.innerHTML = `
+          <div class="col-span-full mb-4">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-lg ${typeInfo.color.replace(
+                "text-",
+                "bg-"
+              )}/20 flex items-center justify-center">
+                <i class="${typeInfo.icon} ${typeInfo.color} text-lg"></i>
+              </div>
+              <div>
+                <h3 class="font-semibold">${typeInfo.name} Versions</h3>
+                <p class="text-gray-400 text-sm">${versions.length} version${
+          versions.length !== 1 ? "s" : ""
+        } available</p>
+              </div>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+            ${versions
+              .map(
+                (version) => `
+              <div class="version-card ${
+                version === selectedVersion ? "active" : ""
+              } 
+                           p-4 rounded-lg border border-gray-700/50 text-center cursor-pointer hover:border-violet-500/50 transition-colors"
+                   onclick="selectVersion('${version}')">
+                <div class="font-semibold mb-1">${version}</div>
+                ${
+                  version === selectedVersion
+                    ? `
+                  <div class="text-xs px-2 py-1 bg-green-900/30 text-green-400 rounded-full inline-block mt-1">
+                    Selected
+                  </div>
+                `
+                    : ""
+                }
+              </div>
+            `
+              )
+              .join("")}
+          </div>
+        `;
+      }
+
+      // Update version display in modal
+      function updateVersionDisplay() {
+        const newVersionDisplay = document.getElementById(
+          "new-version-display"
+        );
+        const newBuildDisplay = document.getElementById("new-build-display");
+        const newTypeDisplay = document.getElementById("new-type-display");
+
+        if (newVersionDisplay) {
+          newVersionDisplay.textContent = `${getTypeName(
+            selectedServerType
+          )} v${selectedVersion}`;
+        }
+
+        if (newBuildDisplay) {
+          if (selectedServerType === "paper") {
+            newBuildDisplay.textContent = `Build ${selectedBuild}`;
+          } else if (selectedServerType === "vanilla") {
+            newBuildDisplay.textContent = "Official release";
+          } else if (selectedServerType === "bungee") {
+            newBuildDisplay.textContent = "Latest version";
+          } else if (selectedServerType === "velocity") {
+            newBuildDisplay.textContent = "Latest build";
+          } else {
+            newBuildDisplay.textContent = "Latest version";
+          }
+        }
+
+        if (newTypeDisplay) {
+          newTypeDisplay.textContent = getTypeName(selectedServerType);
+        }
+      }
+
+      // Get type name
+      function getTypeName(type) {
+        const types = {
+          paper: "PaperMC",
+          purpur: "Purpur",
+          spigot: "Spigot",
+          vanilla: "Vanilla",
+          bungee: "BungeeCord",
+          velocity: "Velocity",
+        };
+        return types[type] || type;
+      }
+
+      // Confirm version change
+      async function confirmVersionChange() {
+        const confirmBtn = document.querySelector(
+          '#modalContent button[onclick="confirmVersionChange()"]'
+        );
+        if (!confirmBtn) return;
+
+        const originalText = confirmBtn.innerHTML;
+
+        confirmBtn.innerHTML =
+          '<i class="fas fa-spinner fa-spin mr-2"></i>Changing...';
+        confirmBtn.disabled = true;
+
+        try {
+          const response = await fetch(
+            `/server/<%= server.id %>/versions/change`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                version: selectedVersion,
+                serverType: selectedServerType,
+                build: selectedBuild,
+              }),
+            }
+          );
+
+          const data = await response.json();
+
+          if (data.success) {
+            showNotification(
+              "Version changed successfully! Server is restarting...",
+              "success"
+            );
+            closeModal();
+
+            // Redirect after delay
+            setTimeout(() => {
+              if (data.redirect) {
+                window.location.href = data.redirect;
+              } else {
+                window.location.href = `/server/<%= server.id %>/versions?success=Version changed to ${selectedVersion}`;
+              }
+            }, 1500);
+          } else {
+            showNotification(`Failed: ${data.error}`, "error");
+            confirmBtn.innerHTML = originalText;
+            confirmBtn.disabled = false;
+          }
+        } catch (error) {
+          showNotification(`Error: ${error.message}`, "error");
+          confirmBtn.innerHTML = originalText;
+          confirmBtn.disabled = false;
+        }
+      }
+
+      // Close modal
+      function closeModal() {
+        document
+          .getElementById("change-version-modal")
+          .classList.remove("active");
+      }
+
+      // Refresh versions
+      async function refreshVersions() {
+        if (!isLoading) {
+          await fetchVersions(selectedServerType);
+          showNotification("Versions refreshed", "success");
+        }
+      }
+
+      // Filter versions
+      function filterVersions() {
+        const filter = document.getElementById("version-filter");
+        if (!filter) return;
+
+        const filterValue = filter.value;
+        const allCards = document.querySelectorAll(".version-card");
+
+        allCards.forEach((card) => {
+          const version = card.querySelector(".font-semibold").textContent;
+          if (filterValue === "all" || version.startsWith(filterValue)) {
+            card.style.display = "block";
+          } else {
+            card.style.display = "none";
+          }
+        });
+      }
+
+      // Show notification
+      function showNotification(message, type = "info") {
+        const notification = document.getElementById("notification");
+        notification.textContent = message;
+        notification.className = `notification ${type}`;
+        notification.classList.add("show");
+
+        setTimeout(() => {
+          notification.classList.remove("show");
+        }, 3000);
+      }
+
+      // Close modal on ESC
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+          closeModal();
+        }
+      });
+
+      // Close modal when clicking outside
+      document
+        .getElementById("change-version-modal")
+        .addEventListener("click", (e) => {
+          if (e.target === document.getElementById("change-version-modal")) {
+            closeModal();
+          }
+        });
+
+      // Initialize: Load versions for current server type
+      document.addEventListener("DOMContentLoaded", () => {
+        // Make sure we have the version filter element
+        const versionFilter = document.getElementById("version-filter");
+        if (versionFilter) {
+          versionFilter.addEventListener("change", filterVersions);
+        }
+
+        // Pre-select current server type
+        const currentTypeCard = document.querySelector(
+          `.server-type-card[onclick*="${selectedServerType}"]`
+        );
+        if (currentTypeCard) {
+          currentTypeCard.classList.add("active");
+        }
+      });
+    </script>
+  </body>
+</html>

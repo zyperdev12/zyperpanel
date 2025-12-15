@@ -1,0 +1,900 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Plugins - <%= server.name %></title>
+    <link rel="icon" href="/falcon.ico" />
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+    />
+    <style>
+      .modal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 1000;
+      }
+      .modal.active {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .modal-content {
+        background: #1f2937;
+        border-radius: 12px;
+        padding: 24px;
+        min-width: 400px;
+        max-width: 800px;
+        max-height: 80vh;
+        overflow-y: auto;
+      }
+
+      /* Plugin Card Styles */
+      .plugin-card {
+        background: #1f2937;
+        border-radius: 10px;
+        padding: 20px;
+        margin-bottom: 15px;
+        border: 1px solid #374151;
+        transition: all 0.3s;
+      }
+
+      .plugin-card:hover {
+        border-color: #6366f1;
+        transform: translateY(-2px);
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+      }
+
+      .plugin-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+        gap: 20px;
+        margin-top: 20px;
+      }
+
+      .plugin-item {
+        background: #111827;
+        border-radius: 8px;
+        padding: 15px;
+        border: 1px solid #374151;
+        transition: all 0.2s;
+      }
+
+      .plugin-item:hover {
+        border-color: #6366f1;
+      }
+
+      .loading-spinner {
+        width: 40px;
+        height: 40px;
+        border: 3px solid #374151;
+        border-top: 3px solid #6366f1;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin: 20px auto;
+      }
+
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+
+      /* Switch Toggle */
+      .switch {
+        position: relative;
+        display: inline-block;
+        width: 60px;
+        height: 30px;
+      }
+
+      .switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+
+      .slider {
+        position: absolute;
+        cursor: pointer;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: #374151;
+        transition: 0.4s;
+        border-radius: 30px;
+      }
+
+      .slider:before {
+        position: absolute;
+        content: "";
+        height: 22px;
+        width: 22px;
+        left: 4px;
+        bottom: 4px;
+        background-color: white;
+        transition: 0.4s;
+        border-radius: 50%;
+      }
+
+      input:checked + .slider {
+        background-color: #10b981;
+      }
+
+      input:checked + .slider:before {
+        transform: translateX(30px);
+      }
+
+      /* Notification */
+      .notification {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 15px 25px;
+        border-radius: 8px;
+        color: white;
+        font-weight: 600;
+        z-index: 1001;
+        transform: translateX(120%);
+        transition: transform 0.3s;
+        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+      }
+
+      .notification.show {
+        transform: translateX(0);
+      }
+
+      .notification.success {
+        background: linear-gradient(135deg, #10b981, #059669);
+        border-left: 4px solid #047857;
+      }
+
+      .notification.error {
+        background: linear-gradient(135deg, #ef4444, #dc2626);
+        border-left: 4px solid #b91c1c;
+      }
+
+      .notification.info {
+        background: linear-gradient(135deg, #3b82f6, #2563eb);
+        border-left: 4px solid #1d4ed8;
+      }
+    </style>
+  </head>
+  <body class="bg-gray-900 text-white min-h-screen">
+    <nav class="bg-gray-800 border-b border-gray-700">
+      <div class="max-w-7xl mx-auto px-6 h-16 flex items-center gap-4">
+        <a
+          href="/server/<%= server.id %>"
+          class="text-gray-400 hover:text-white"
+          >← Back</a
+        >
+        <span class="text-xl font-bold"><%= server.name %> - Plugins</span>
+      </div>
+    </nav>
+
+    <main class="max-w-7xl mx-auto px-6 py-8">
+      <!-- Header with Install Button -->
+      <div class="flex justify-between items-center mb-6">
+        <div>
+          <h2 class="text-2xl font-bold">Plugin Manager</h2>
+          <p class="text-gray-400">
+            Manage and install plugins for your server
+          </p>
+        </div>
+        <button
+          onclick="showPluginStore()"
+          class="px-6 py-3 bg-violet-600 hover:bg-violet-700 rounded-lg font-semibold flex items-center gap-2"
+        >
+          <i class="fas fa-store"></i> Browse & Install Plugins
+        </button>
+      </div>
+
+      <!-- Tabs -->
+      <div class="flex border-b border-gray-700 mb-6">
+        <button
+          id="tab-installed"
+          class="px-4 py-2 font-medium border-b-2 border-violet-500 text-violet-400"
+        >
+          <i class="fas fa-plug mr-2"></i>Installed Plugins (<%= plugins.length
+          %>)
+        </button>
+        <button
+          id="tab-store"
+          class="px-4 py-2 font-medium text-gray-400 hover:text-white"
+        >
+          <i class="fas fa-store mr-2"></i>Plugin Store
+        </button>
+      </div>
+
+      <!-- Installed Plugins Tab -->
+      <div id="installed-plugins">
+        <% if (plugins.length === 0) { %>
+        <div
+          class="bg-gray-800/50 rounded-xl border border-gray-700/50 p-12 text-center text-gray-400"
+        >
+          <i class="fas fa-plug text-4xl mb-4 opacity-50"></i>
+          <h3 class="text-xl font-semibold mb-2">No plugins installed</h3>
+          <p class="mb-6">
+            Install plugins to enhance your server functionality
+          </p>
+          <button
+            onclick="showPluginStore()"
+            class="px-6 py-3 bg-violet-600 hover:bg-violet-700 rounded-lg font-semibold"
+          >
+            <i class="fas fa-store mr-2"></i>Browse Plugin Store
+          </button>
+        </div>
+        <% } else { %>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <% plugins.forEach(plugin => { %>
+          <div class="bg-gray-800/50 rounded-xl border border-gray-700/50 p-6">
+            <div class="flex justify-between items-start mb-4">
+              <div>
+                <h3 class="font-semibold text-lg truncate">
+                  <%= plugin.name %>
+                </h3>
+                <p class="text-sm text-gray-400">v<%= plugin.version %></p>
+              </div>
+              <div class="flex items-center gap-2">
+                <span
+                  class="text-xs px-2 py-1 rounded <%= plugin.enabled ? 'bg-green-900/30 text-green-400' : 'bg-red-900/30 text-red-400' %>"
+                >
+                  <%= plugin.enabled ? 'Enabled' : 'Disabled' %>
+                </span>
+              </div>
+            </div>
+
+            <div class="text-sm text-gray-400 mb-4 flex items-center gap-2">
+              <i class="fas fa-hdd"></i>
+              <span><%= (plugin.size / 1024 / 1024).toFixed(2) %> MB</span>
+            </div>
+
+            <div class="flex items-center justify-between">
+              <label class="flex items-center gap-2 cursor-pointer">
+                <span class="text-sm text-gray-300">Enabled</span>
+                <div class="switch">
+                  <input type="checkbox" <%= plugin.enabled ? 'checked' : '' %>
+                  onchange="togglePlugin('<%= plugin.name %>', this.checked)">
+                  <span class="slider"></span>
+                </div>
+              </label>
+
+              <div class="flex gap-2">
+                <button
+                  onclick="deletePlugin('<%= plugin.name %>')"
+                  class="px-3 py-1 text-sm bg-red-600/20 hover:bg-red-600/40 text-red-400 rounded-lg transition-colors"
+                >
+                  <i class="fas fa-trash mr-1"></i>Delete
+                </button>
+              </div>
+            </div>
+          </div>
+          <% }) %>
+        </div>
+        <% } %>
+      </div>
+
+      <!-- Plugin Store Tab (Hidden by default) -->
+      <div id="plugin-store" class="hidden">
+        <div class="mb-6">
+          <div class="flex gap-4 mb-4">
+            <div class="flex-1 relative">
+              <input
+                type="text"
+                id="plugin-search"
+                class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg pl-12"
+                placeholder="Search plugins (EssentialsX, WorldEdit, LuckPerms...)"
+              />
+              <i
+                class="fas fa-search absolute left-4 top-3.5 text-gray-400"
+              ></i>
+            </div>
+            <select
+              id="plugin-source"
+              class="px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg"
+            >
+              <option value="spigot">SpigotMC</option>
+              <option value="modrinth">Modrinth</option>
+            </select>
+            <button
+              onclick="searchPlugins()"
+              class="px-6 py-3 bg-violet-600 hover:bg-violet-700 rounded-lg font-semibold"
+            >
+              <i class="fas fa-search mr-2"></i>Search
+            </button>
+          </div>
+
+          <div class="flex gap-2 flex-wrap">
+            <button
+              onclick="searchPlugins('minecraft')"
+              class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm"
+            >
+              Popular
+            </button>
+            <button
+              onclick="searchPlugins('essentials')"
+              class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm"
+            >
+              Essentials
+            </button>
+            <button
+              onclick="searchPlugins('worldedit')"
+              class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm"
+            >
+              WorldEdit
+            </button>
+            <button
+              onclick="searchPlugins('luckperms')"
+              class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm"
+            >
+              LuckPerms
+            </button>
+            <button
+              onclick="searchPlugins('vault')"
+              class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm"
+            >
+              Vault
+            </button>
+            <button
+              onclick="searchPlugins('plugin')"
+              class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm"
+            >
+              All Plugins
+            </button>
+          </div>
+        </div>
+
+        <div id="plugin-results">
+          <div class="text-center py-12">
+            <div class="loading-spinner"></div>
+            <p class="mt-4 text-gray-400">Search for plugins to get started</p>
+          </div>
+        </div>
+
+        <div
+          id="plugin-pagination"
+          class="flex justify-center gap-4 mt-8 hidden"
+        >
+          <button
+            id="prev-page"
+            class="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg disabled:opacity-50"
+          >
+            <i class="fas fa-chevron-left mr-2"></i>Previous
+          </button>
+          <span id="page-info" class="px-4 py-2 text-gray-400">Page 1</span>
+          <button
+            id="next-page"
+            class="px-4 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg disabled:opacity-50"
+          >
+            Next <i class="fas fa-chevron-right ml-2"></i>
+          </button>
+        </div>
+      </div>
+    </main>
+
+    <!-- Installation Modal -->
+    <div id="install-modal" class="modal">
+      <div class="modal-content">
+        <div id="modalContent"></div>
+      </div>
+    </div>
+
+    <!-- Notification -->
+    <div id="notification" class="notification"></div>
+
+    <script>
+      // State
+      let currentPage = 1;
+      let currentSearch = "";
+      let currentSource = "spigot";
+      let selectedPlugin = null;
+
+      // Tab switching
+      document.getElementById("tab-installed").addEventListener("click", () => {
+        document
+          .getElementById("tab-installed")
+          .classList.add("border-violet-500", "text-violet-400");
+        document
+          .getElementById("tab-store")
+          .classList.remove("border-violet-500", "text-violet-400");
+        document.getElementById("tab-store").classList.add("text-gray-400");
+        document.getElementById("installed-plugins").classList.remove("hidden");
+        document.getElementById("plugin-store").classList.add("hidden");
+      });
+
+      document.getElementById("tab-store").addEventListener("click", () => {
+        document
+          .getElementById("tab-store")
+          .classList.add("border-violet-500", "text-violet-400");
+        document
+          .getElementById("tab-installed")
+          .classList.remove("border-violet-500", "text-violet-400");
+        document.getElementById("tab-installed").classList.add("text-gray-400");
+        document.getElementById("plugin-store").classList.remove("hidden");
+        document.getElementById("installed-plugins").classList.add("hidden");
+        if (currentSearch === "") {
+          searchPlugins("minecraft");
+        }
+      });
+
+      // Show plugin store
+      function showPluginStore() {
+        document.getElementById("tab-store").click();
+      }
+
+      // Search plugins
+      async function searchPlugins(query = "") {
+        if (query) {
+          document.getElementById("plugin-search").value = query;
+        }
+
+        currentSearch =
+          document.getElementById("plugin-search").value.trim() || query;
+        currentSource = document.getElementById("plugin-source").value;
+        currentPage = 1;
+
+        const resultsDiv = document.getElementById("plugin-results");
+        resultsDiv.innerHTML = `
+          <div class="text-center py-12">
+            <div class="loading-spinner"></div>
+            <p class="mt-4 text-gray-400">Searching plugins...</p>
+          </div>
+        `;
+
+        try {
+          const response = await fetch(
+            `/server/<%= server.id %>/plugins/available?search=${encodeURIComponent(
+              currentSearch
+            )}&page=${currentPage}&source=${currentSource}`
+          );
+          const data = await response.json();
+
+          if (data.success) {
+            renderPluginResults(data.plugins);
+            updatePagination(data.plugins.length > 0);
+          } else {
+            resultsDiv.innerHTML = `
+              <div class="text-center py-12 text-red-400">
+                <i class="fas fa-exclamation-triangle text-3xl mb-4"></i>
+                <p>Failed to load plugins</p>
+              </div>
+            `;
+          }
+        } catch (error) {
+          resultsDiv.innerHTML = `
+            <div class="text-center py-12 text-red-400">
+              <i class="fas fa-exclamation-triangle text-3xl mb-4"></i>
+              <p>Error: ${error.message}</p>
+            </div>
+          `;
+        }
+      }
+
+      // Render plugin results
+      function renderPluginResults(plugins) {
+        const resultsDiv = document.getElementById("plugin-results");
+
+        if (plugins.length === 0) {
+          resultsDiv.innerHTML = `
+            <div class="text-center py-12 text-gray-400">
+              <i class="fas fa-search text-3xl mb-4 opacity-50"></i>
+              <h3 class="text-xl font-semibold mb-2">No plugins found</h3>
+              <p>Try a different search term</p>
+            </div>
+          `;
+          return;
+        }
+
+        resultsDiv.innerHTML = `
+          <div class="plugin-grid">
+            ${plugins.map((plugin) => createPluginCard(plugin)).join("")}
+          </div>
+        `;
+
+        // Add event listeners to install buttons
+        document.querySelectorAll(".install-plugin-btn").forEach((btn) => {
+          btn.addEventListener("click", function () {
+            const pluginId = this.dataset.pluginId;
+            const pluginName = this.dataset.pluginName;
+            const plugin = plugins.find((p) =>
+              currentSource === "spigot"
+                ? p.id.toString() === pluginId
+                : p.project_id === pluginId
+            );
+            if (plugin) {
+              openInstallModal(plugin, pluginName);
+            }
+          });
+        });
+      }
+
+      // Create plugin card HTML
+      function createPluginCard(plugin) {
+        if (currentSource === "spigot") {
+          return `
+            <div class="plugin-item">
+              <div class="flex justify-between items-start mb-3">
+                <h3 class="font-semibold truncate" title="${
+                  plugin.name || "Unnamed Plugin"
+                }">
+                  <i class="fas fa-cube text-violet-400 mr-2"></i>
+                  ${plugin.name || "Unnamed Plugin"}
+                </h3>
+                <span class="text-xs px-2 py-1 bg-violet-900/30 text-violet-400 rounded">Spigot</span>
+              </div>
+              
+              <p class="text-sm text-gray-400 mb-3 line-clamp-2">
+                ${plugin.tag || "No description available"}
+              </p>
+              
+              <div class="flex justify-between items-center text-sm text-gray-500 mb-3">
+                <span class="flex items-center gap-1">
+                  <i class="fas fa-user"></i>
+                  ${plugin.author ? plugin.author.name : "Unknown"}
+                </span>
+                <span class="flex items-center gap-1">
+                  <i class="fas fa-download"></i>
+                  ${plugin.downloads ? formatNumber(plugin.downloads) : "0"}
+                </span>
+              </div>
+              
+              <button class="w-full py-2 bg-violet-600 hover:bg-violet-700 rounded-lg font-medium install-plugin-btn"
+                      data-plugin-id="${plugin.id}"
+                      data-plugin-name="${plugin.name || "plugin"}">
+                <i class="fas fa-download mr-2"></i>Install
+              </button>
+            </div>
+          `;
+        } else {
+          return `
+            <div class="plugin-item">
+              <div class="flex justify-between items-start mb-3">
+                <h3 class="font-semibold truncate" title="${
+                  plugin.title || "Unnamed Plugin"
+                }">
+                  <i class="fas fa-box-open text-blue-400 mr-2"></i>
+                  ${plugin.title || "Unnamed Plugin"}
+                </h3>
+                <span class="text-xs px-2 py-1 bg-blue-900/30 text-blue-400 rounded">Modrinth</span>
+              </div>
+              
+              <p class="text-sm text-gray-400 mb-3 line-clamp-2">
+                ${plugin.description || "No description available"}
+              </p>
+              
+              <div class="flex justify-between items-center text-sm text-gray-500 mb-3">
+                <span class="flex items-center gap-1">
+                  <i class="fas fa-user"></i>
+                  ${plugin.author || "Unknown"}
+                </span>
+                <span class="flex items-center gap-1">
+                  <i class="fas fa-download"></i>
+                  ${plugin.downloads ? formatNumber(plugin.downloads) : "0"}
+                </span>
+              </div>
+              
+              <button class="w-full py-2 bg-blue-600 hover:bg-blue-700 rounded-lg font-medium install-plugin-btn"
+                      data-plugin-id="${plugin.project_id}"
+                      data-plugin-name="${plugin.title || "plugin"}">
+                <i class="fas fa-download mr-2"></i>Install
+              </button>
+            </div>
+          `;
+        }
+      }
+
+      // Open installation modal
+      function openInstallModal(plugin, pluginName) {
+        selectedPlugin = plugin;
+
+        const modalContent = document.getElementById("modalContent");
+        modalContent.innerHTML = `
+          <div class="flex justify-between items-center mb-6">
+            <h3 class="text-xl font-bold">
+              <i class="fas fa-download mr-2"></i>Install Plugin
+            </h3>
+            <button onclick="closeModal()" class="text-gray-400 hover:text-white">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+          
+          <div class="mb-6">
+            <div class="bg-gray-800/50 rounded-lg p-4 mb-4">
+              <h4 class="font-semibold text-lg mb-2">
+                ${currentSource === "spigot" ? plugin.name : plugin.title}
+              </h4>
+              <p class="text-gray-400 text-sm mb-2">
+                ${
+                  currentSource === "spigot"
+                    ? "By " + (plugin.author ? plugin.author.name : "Unknown")
+                    : "By " + (plugin.author || "Unknown")
+                }
+              </p>
+              <div class="flex items-center gap-4 text-sm text-gray-500">
+                <span><i class="fas fa-download mr-1"></i> ${
+                  currentSource === "spigot"
+                    ? plugin.downloads
+                      ? formatNumber(plugin.downloads)
+                      : "0"
+                    : plugin.downloads
+                    ? formatNumber(plugin.downloads)
+                    : "0"
+                } downloads</span>
+                <span><i class="fas fa-star mr-1"></i> ${
+                  currentSource === "spigot"
+                    ? plugin.rating
+                      ? plugin.rating.average.toFixed(1)
+                      : "N/A"
+                    : "N/A"
+                }/5</span>
+              </div>
+            </div>
+            
+            <div class="mb-4">
+              <label class="block text-gray-400 mb-2">Installation Options</label>
+              <div class="grid grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-sm text-gray-400 mb-1">Server Version</label>
+                  <select id="install-version" class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg">
+                    <option value="<%= serverVersion %>"><%= serverVersion %></option>
+                    <option value="1.20.4">1.20.4</option>
+                    <option value="1.20.1">1.20.1</option>
+                    <option value="1.19.4">1.19.4</option>
+                    <option value="1.18.2">1.18.2</option>
+                    <option value="1.17.1">1.17.1</option>
+                    <option value="1.16.5">1.16.5</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-sm text-gray-400 mb-1">Server Type</label>
+                  <select id="install-type" class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg">
+                    <option value="paper">Paper</option>
+                    <option value="spigot">Spigot</option>
+                    <option value="bukkit">Bukkit</option>
+                    <option value="purpur">Purpur</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="flex justify-end gap-3">
+            <button onclick="closeModal()" 
+                    class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors">
+              Cancel
+            </button>
+            <button onclick="installPlugin()" 
+                    class="px-4 py-2 bg-violet-600 hover:bg-violet-700 rounded-lg transition-colors font-semibold">
+              <i class="fas fa-download mr-2"></i>Install Now
+            </button>
+          </div>
+        `;
+
+        document.getElementById("install-modal").classList.add("active");
+      }
+
+      // Close modal
+      function closeModal() {
+        document.getElementById("install-modal").classList.remove("active");
+        selectedPlugin = null;
+      }
+
+      // Install plugin
+      async function installPlugin() {
+        if (!selectedPlugin) return;
+
+        const installBtn = document.querySelector(
+          '#modalContent button[onclick="installPlugin()"]'
+        );
+        const originalText = installBtn.innerHTML;
+
+        installBtn.innerHTML =
+          '<i class="fas fa-spinner fa-spin mr-2"></i>Installing...';
+        installBtn.disabled = true;
+
+        try {
+          // Construct plugin URL based on source
+          let pluginUrl;
+          if (currentSource === "spigot") {
+            pluginUrl = `https://api.spiget.org/v2/resources/${selectedPlugin.id}/download`;
+          } else {
+            // Modrinth - find appropriate download
+            pluginUrl =
+              selectedPlugin.versions && selectedPlugin.versions[0]
+                ? `https://api.modrinth.com/v2/project/${selectedPlugin.project_id}/version/${selectedPlugin.versions[0]}`
+                : null;
+          }
+
+          const pluginName =
+            currentSource === "spigot"
+              ? selectedPlugin.name
+              : selectedPlugin.title;
+
+          const response = await fetch(
+            `/server/<%= server.id %>/plugins/install`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                pluginUrl,
+                pluginName: pluginName.replace(/[^a-zA-Z0-9]/g, "_"),
+                source: currentSource,
+              }),
+            }
+          );
+
+          const data = await response.json();
+
+          if (data.success) {
+            showNotification("Plugin installed successfully!", "success");
+            closeModal();
+            // Refresh installed plugins list
+            setTimeout(() => window.location.reload(), 1500);
+          } else {
+            showNotification(`Installation failed: ${data.error}`, "error");
+          }
+        } catch (error) {
+          showNotification(`Error: ${error.message}`, "error");
+        } finally {
+          installBtn.innerHTML = originalText;
+          installBtn.disabled = false;
+        }
+      }
+
+      // Toggle plugin enable/disable
+      async function togglePlugin(pluginName, enabled) {
+        try {
+          const response = await fetch(
+            `/server/<%= server.id %>/plugins/toggle`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ pluginName, enabled }),
+            }
+          );
+
+          const data = await response.json();
+
+          if (data.success) {
+            showNotification(
+              `Plugin ${enabled ? "enabled" : "disabled"} successfully`,
+              "success"
+            );
+            // Refresh after delay
+            setTimeout(() => window.location.reload(), 1000);
+          } else {
+            showNotification(`Failed to toggle plugin: ${data.error}`, "error");
+            // Revert the toggle
+            setTimeout(() => window.location.reload(), 500);
+          }
+        } catch (error) {
+          showNotification(`Error: ${error.message}`, "error");
+          setTimeout(() => window.location.reload(), 500);
+        }
+      }
+
+      // Delete plugin
+      async function deletePlugin(pluginName) {
+        if (
+          !confirm(
+            `Are you sure you want to delete "${pluginName}"? This action cannot be undone.`
+          )
+        ) {
+          return;
+        }
+
+        try {
+          const response = await fetch(
+            `/server/<%= server.id %>/plugins/delete`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ pluginName }),
+            }
+          );
+
+          const data = await response.json();
+
+          if (data.success) {
+            showNotification("Plugin deleted successfully", "success");
+            setTimeout(() => window.location.reload(), 1000);
+          } else {
+            showNotification(`Failed to delete plugin: ${data.error}`, "error");
+          }
+        } catch (error) {
+          showNotification(`Error: ${error.message}`, "error");
+        }
+      }
+
+      // Update pagination
+      function updatePagination(hasResults) {
+        const paginationDiv = document.getElementById("plugin-pagination");
+        const pageInfo = document.getElementById("page-info");
+        const prevBtn = document.getElementById("prev-page");
+        const nextBtn = document.getElementById("next-page");
+
+        if (hasResults) {
+          paginationDiv.classList.remove("hidden");
+          pageInfo.textContent = `Page ${currentPage}`;
+          prevBtn.disabled = currentPage <= 1;
+          nextBtn.disabled = false; // We don't know total pages from API
+        } else {
+          paginationDiv.classList.add("hidden");
+        }
+
+        // Set up pagination events
+        prevBtn.onclick = () => {
+          if (currentPage > 1) {
+            currentPage--;
+            searchPlugins();
+          }
+        };
+
+        nextBtn.onclick = () => {
+          currentPage++;
+          searchPlugins();
+        };
+      }
+
+      // Show notification
+      function showNotification(message, type = "info") {
+        const notification = document.getElementById("notification");
+        notification.textContent = message;
+        notification.className = `notification ${type}`;
+        notification.classList.add("show");
+
+        setTimeout(() => {
+          notification.classList.remove("show");
+        }, 3000);
+      }
+
+      // Utility function to format numbers
+      function formatNumber(num) {
+        if (!num) return "0";
+        if (num >= 1000000) {
+          return (num / 1000000).toFixed(1) + "M";
+        } else if (num >= 1000) {
+          return (num / 1000).toFixed(1) + "K";
+        }
+        return num.toString();
+      }
+
+      // Search on Enter key
+      document
+        .getElementById("plugin-search")
+        .addEventListener("keyup", (e) => {
+          if (e.key === "Enter") {
+            searchPlugins();
+          }
+        });
+
+      // Close modal on ESC
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+          closeModal();
+        }
+      });
+
+      // Close modal when clicking outside
+      document
+        .getElementById("install-modal")
+        .addEventListener("click", (e) => {
+          if (e.target === document.getElementById("install-modal")) {
+            closeModal();
+          }
+        });
+    </script>
+  </body>
+</html>

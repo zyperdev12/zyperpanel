@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Nodes - <%= settings.panelName %></title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="icon" href="/falcon.ico" />
+  </head>
+  <body class="bg-gray-900 text-white min-h-screen">
+    <div class="flex">
+      <aside class="w-64 min-h-screen bg-gray-800 border-r border-gray-700 p-4">
+        <div class="flex items-center gap-3 mb-8">
+          <div
+            class="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center"
+          >
+            <svg
+              class="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2"
+              />
+            </svg>
+          </div>
+          <span class="font-bold"><%= settings.panelName %></span>
+        </div>
+        <nav class="space-y-2">
+          <a
+            href="/admin/overview"
+            class="block px-4 py-2 text-gray-400 hover:bg-gray-700 rounded-lg"
+            >Overview</a
+          >
+          <a
+            href="/admin/nodes"
+            class="block px-4 py-2 bg-violet-500/20 text-violet-400 rounded-lg"
+            >Nodes</a
+          >
+          <a
+            href="/admin/servers"
+            class="block px-4 py-2 text-gray-400 hover:bg-gray-700 rounded-lg"
+            >Servers</a
+          >
+          <a
+            href="/admin/users"
+            class="block px-4 py-2 text-gray-400 hover:bg-gray-700 rounded-lg"
+            >Users</a
+          >
+          <a
+            href="/admin/settings"
+            class="block px-4 py-2 text-gray-400 hover:bg-gray-700 rounded-lg"
+            >Settings</a
+          >
+        </nav>
+      </aside>
+
+      <main class="flex-1 p-8">
+        <div class="flex justify-between items-center mb-8">
+          <h1 class="text-3xl font-bold">Nodes</h1>
+          <a
+            href="/admin/nodes/create"
+            class="px-4 py-2 bg-violet-500 rounded-lg hover:bg-violet-600"
+            >Create Node</a
+          >
+        </div>
+
+        <% if (nodes.length === 0) { %>
+        <div
+          class="bg-gray-800/50 rounded-xl border border-gray-700/50 p-12 text-center"
+        >
+          <p class="text-gray-400 mb-4">No nodes created yet.</p>
+          <a
+            href="/admin/nodes/create"
+            class="px-6 py-3 bg-violet-500 rounded-lg hover:bg-violet-600 inline-block"
+            >Create Node</a
+          >
+        </div>
+        <% } else { %>
+        <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <% nodes.forEach(node => { %>
+          <div class="bg-gray-800/50 rounded-xl border border-gray-700/50 p-6">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="text-lg font-semibold"><%= node.name %></h3>
+              <span
+                class="px-2 py-1 rounded text-xs <%= node.status === 'online' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400' %>"
+                ><%= node.status %></span
+              >
+            </div>
+            <div class="space-y-2 text-sm text-gray-400 mb-4">
+              <p>CPU: <%= node.cpu %> Cores</p>
+              <p>RAM: <%= node.ram %> GB</p>
+              <p>Location: <%= node.location %></p>
+              <p>Servers: <%= node.servers.length %></p>
+            </div>
+            <div class="space-y-2">
+              <button
+                onclick="showConfig('<%= settings.panelPort %>', '<%= node.key %>')"
+                class="w-full py-2 bg-blue-500/20 text-blue-400 rounded-lg hover:bg-blue-500/30"
+              >
+                Configure
+              </button>
+              <div class="flex gap-2">
+                <a
+                  href="/admin/nodes/<%= node.id %>/edit"
+                  class="flex-1 py-2 text-center bg-yellow-500/20 text-yellow-400 rounded-lg hover:bg-yellow-500/30"
+                  >Edit</a
+                >
+                <form
+                  method="POST"
+                  action="/admin/nodes/<%= node.id %>/delete"
+                  class="flex-1"
+                >
+                  <button
+                    type="submit"
+                    class="w-full py-2 bg-red-500/20 text-red-400 rounded-lg hover:bg-red-500/30"
+                    onclick="return confirm('Delete this node?')"
+                  >
+                    Delete
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
+          <% }) %>
+        </div>
+        <% } %>
+      </main>
+    </div>
+
+    <div
+      id="configModal"
+      class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+    >
+      <div class="bg-gray-800 rounded-xl p-6 max-w-lg w-full mx-4">
+        <h3 class="text-xl font-bold mb-4">Node Configuration</h3>
+        <p class="text-gray-400 mb-4">Run this command on your node server:</p>
+        <code
+          id="configCommand"
+          class="block p-4 bg-black rounded-lg text-green-400 font-mono text-sm break-all"
+        ></code>
+        <button
+          onclick="closeModal()"
+          class="mt-4 px-4 py-2 bg-gray-700 rounded-lg hover:bg-gray-600"
+        >
+          Close
+        </button>
+      </div>
+    </div>
+
+    <script>
+      function showConfig(port, key, nodeHost, nodePort) {
+        const command = `npm run configure -- --panel "http://localhost:${port}" --key "${key}"`;
+        document.getElementById("configCommand").textContent = command;
+        document.getElementById("configModal").classList.remove("hidden");
+      }
+    </script>
+  </body>
+</html>

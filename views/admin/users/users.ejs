@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Users - <%= settings.panelName %></title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="icon" href="/falcon.ico" />
+  </head>
+  <body class="bg-gray-900 text-white min-h-screen">
+    <div class="flex">
+      <aside class="w-64 min-h-screen bg-gray-800 border-r border-gray-700 p-4">
+        <div class="flex items-center gap-3 mb-8">
+          <div
+            class="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600"
+          ></div>
+          <span class="font-bold"><%= settings.panelName %></span>
+        </div>
+        <nav class="space-y-2">
+          <a
+            href="/admin/overview"
+            class="block px-4 py-2 text-gray-400 hover:bg-gray-700 rounded-lg"
+            >Overview</a
+          >
+          <a
+            href="/admin/nodes"
+            class="block px-4 py-2 text-gray-400 hover:bg-gray-700 rounded-lg"
+            >Nodes</a
+          >
+          <a
+            href="/admin/servers"
+            class="block px-4 py-2 text-gray-400 hover:bg-gray-700 rounded-lg"
+            >Servers</a
+          >
+          <a
+            href="/admin/users"
+            class="block px-4 py-2 bg-violet-500/20 text-violet-400 rounded-lg"
+            >Users</a
+          >
+          <a
+            href="/admin/settings"
+            class="block px-4 py-2 text-gray-400 hover:bg-gray-700 rounded-lg"
+            >Settings</a
+          >
+        </nav>
+      </aside>
+
+      <main class="flex-1 p-8">
+        <div class="flex justify-between items-center mb-8">
+          <h1 class="text-3xl font-bold">Users</h1>
+          <a
+            href="/admin/users/create"
+            class="px-4 py-2 bg-violet-500 rounded-lg hover:bg-violet-600"
+            >Create User</a
+          >
+        </div>
+
+        <div
+          class="bg-gray-800/50 rounded-xl border border-gray-700/50 overflow-hidden"
+        >
+          <table class="w-full">
+            <thead class="bg-gray-700/50">
+              <tr>
+                <th class="px-6 py-3 text-left text-sm">Username</th>
+                <th class="px-6 py-3 text-left text-sm">Email</th>
+                <th class="px-6 py-3 text-left text-sm">Role</th>
+                <th class="px-6 py-3 text-left text-sm">Servers</th>
+                <th class="px-6 py-3 text-left text-sm">Actions</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-700/50">
+              <% users.forEach(u => { %>
+              <tr>
+                <td class="px-6 py-4"><%= u.username %></td>
+                <td class="px-6 py-4 text-gray-400"><%= u.email %></td>
+                <td class="px-6 py-4">
+                  <span
+                    class="px-2 py-1 rounded text-xs <%= u.isAdmin ? 'bg-violet-500/20 text-violet-400' : 'bg-gray-500/20 text-gray-400' %>"
+                  >
+                    <%= u.isAdmin ? 'Admin' : 'User' %>
+                  </span>
+                </td>
+                <td class="px-6 py-4"><%= u.servers.length %></td>
+                <td class="px-6 py-4">
+                  <form
+                    method="POST"
+                    action="/admin/users/<%= u.id %>/delete"
+                    class="inline"
+                  >
+                    <button
+                      type="submit"
+                      class="text-red-400 hover:text-red-300"
+                      onclick="return confirm('Delete this user?')"
+                    >
+                      Delete
+                    </button>
+                  </form>
+                </td>
+              </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
+      </main>
+    </div>
+  </body>
+</html>

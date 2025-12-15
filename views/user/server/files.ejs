@@ -1,0 +1,1057 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Files - <%= server.name %></title>
+    <link rel="icon" href="/falcon.ico" />
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+    />
+    <style>
+      .modal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 1000;
+      }
+      .modal.active {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .modal-content {
+        background: #1f2937;
+        border-radius: 12px;
+        padding: 24px;
+        min-width: 400px;
+        max-width: 600px;
+        max-height: 80vh;
+        overflow-y: auto;
+      }
+      .progress-bar {
+        width: 100%;
+        height: 6px;
+        background: #374151;
+        border-radius: 3px;
+        overflow: hidden;
+        margin-top: 8px;
+      }
+      .progress-fill {
+        height: 100%;
+        background: #3b82f6;
+        transition: width 0.3s ease;
+      }
+      .file-list {
+        max-height: 300px;
+        overflow-y: auto;
+        border: 1px solid #374151;
+        border-radius: 6px;
+        padding: 8px;
+        margin-top: 12px;
+      }
+      .file-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px;
+        margin-bottom: 4px;
+        background: #374151;
+        border-radius: 4px;
+      }
+      .file-item.success {
+        background: #065f46;
+      }
+      .file-item.error {
+        background: #7f1d1d;
+      }
+    </style>
+  </head>
+  <body class="bg-gray-900 text-white min-h-screen">
+    <nav class="bg-gray-800 border-b border-gray-700 sticky top-0 z-10">
+      <div class="max-w-7xl mx-auto px-6 h-16 flex items-center gap-4">
+        <a
+          href="/server/<%= server.id %>"
+          class="text-gray-400 hover:text-white transition-colors"
+        >
+          <i class="fas fa-arrow-left mr-2"></i>Back to Server
+        </a>
+        <span class="text-xl font-bold flex-1 truncate">
+          <i class="fas fa-folder mr-2"></i><%= server.name %> - File Manager
+        </span>
+        <button
+          onclick="refreshFiles()"
+          class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors"
+        >
+          <i class="fas fa-sync-alt mr-2"></i>Refresh
+        </button>
+      </div>
+    </nav>
+
+    <main class="max-w-7xl mx-auto px-6 py-8">
+      <!-- Breadcrumb Navigation -->
+      <div class="bg-gray-800/50 rounded-xl border border-gray-700/50 p-4 mb-4">
+        <div class="flex items-center gap-2 text-sm mb-4">
+          <a
+            href="/server/<%= server.id %>/files?path=/"
+            class="text-violet-400 hover:text-violet-300 transition-colors px-2 py-1 rounded bg-gray-700/50"
+          >
+            <i class="fas fa-home"></i> /
+          </a>
+          <% if (currentPath && currentPath !== '/') { %> <% const parts =
+          currentPath.split('/').filter(p => p); %> <% let accumulated = ''; %>
+          <% parts.forEach((part, index) => { %>
+          <span class="text-gray-500">/</span>
+          <% accumulated += '/' + part; %> <% if (index === parts.length - 1) {
+          %>
+          <span
+            class="text-gray-300 font-medium truncate px-2 py-1 rounded bg-gray-700"
+          >
+            <i class="fas fa-folder mr-1"></i><%= part %>
+          </span>
+          <% } else { %>
+          <a
+            href="/server/<%= server.id %>/files?path=<%= encodeURIComponent(accumulated) %>"
+            class="text-violet-400 hover:text-violet-300 transition-colors px-2 py-1 rounded bg-gray-700/50"
+          >
+            <i class="fas fa-folder mr-1"></i><%= part %>
+          </a>
+          <% } %> <% }); %> <% } %>
+        </div>
+
+        <!-- File actions -->
+        <div class="flex gap-2 flex-wrap">
+          <button
+            onclick="createFile()"
+            class="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg transition-colors text-sm"
+          >
+            <i class="fas fa-file-plus mr-2"></i>New File
+          </button>
+          <button
+            onclick="createFolder()"
+            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors text-sm"
+          >
+            <i class="fas fa-folder-plus mr-2"></i>New Folder
+          </button>
+          <button
+            onclick="showUploadModal()"
+            class="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors text-sm"
+          >
+            <i class="fas fa-upload mr-2"></i>Upload Files
+          </button>
+          <button
+            onclick="goUp()"
+            class="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded-lg transition-colors text-sm"
+          >
+            <i class="fas fa-level-up-alt mr-2"></i>Go Up
+          </button>
+        </div>
+      </div>
+
+      <!-- Error Message -->
+      <% if (error) { %>
+      <div class="mb-4 p-4 bg-red-900/30 border border-red-700/50 rounded-xl">
+        <div class="flex items-center gap-2 text-red-400">
+          <i class="fas fa-exclamation-circle"></i>
+          <span><%= error %></span>
+        </div>
+      </div>
+      <% } %>
+
+      <!-- File List -->
+      <div
+        class="bg-gray-800/50 rounded-xl border border-gray-700/50 overflow-hidden"
+      >
+        <!-- Header -->
+        <div
+          class="grid grid-cols-12 gap-4 p-4 bg-gray-800/80 border-b border-gray-700/50 text-gray-400 text-sm font-medium"
+        >
+          <div class="col-span-6">Name</div>
+          <div class="col-span-2">Size</div>
+          <div class="col-span-2">Modified</div>
+          <div class="col-span-2">Actions</div>
+        </div>
+
+        <% if (files.length === 0) { %>
+        <div class="p-8 text-center text-gray-400">
+          <i class="fas fa-folder-open text-4xl mb-4 opacity-50"></i>
+          <p class="text-lg">Folder is empty</p>
+          <p class="text-sm mt-2">
+            Create a file or upload files to get started
+          </p>
+        </div>
+        <% } else { %> <% files.forEach(file => { %>
+        <div
+          class="grid grid-cols-12 gap-4 p-4 border-b border-gray-700/30 hover:bg-gray-700/20 transition-colors"
+        >
+          <!-- Name -->
+          <div class="col-span-6 flex items-center gap-3 truncate">
+            <% if (file.isDir) { %>
+            <i class="fas fa-folder text-yellow-400"></i>
+            <% } else { %>
+            <i class="fas fa-file text-gray-400"></i>
+            <% } %> <% if (file.isDir) { %>
+            <a
+              href="/server/<%= server.id %>/files?path=<%= encodeURIComponent(file.path) %>"
+              class="hover:text-violet-300 transition-colors truncate"
+              title="<%= file.name %>"
+            >
+              <%= file.name %>/
+            </a>
+            <% } else { %>
+            <span
+              class="truncate cursor-pointer hover:text-violet-300"
+              onclick="editFile('<%= encodeURIComponent(file.path) %>')"
+              title="<%= file.name %>"
+            >
+              <%= file.name %>
+            </span>
+            <% } %>
+          </div>
+
+          <!-- Size -->
+          <div class="col-span-2 flex items-center text-gray-400 text-sm">
+            <% if (file.isDir) { %>
+            <span class="text-xs text-gray-500">—</span>
+            <% } else { %> <% if (typeof formatBytes === 'function') { %> <%=
+            formatBytes(file.size) %> <% } else { %> <%= file.size %> bytes <% }
+            %> <% } %>
+          </div>
+
+          <!-- Modified -->
+          <div class="col-span-2 text-gray-400 text-sm">
+            <% if (file.modified) { %> <%= new
+            Date(file.modified).toLocaleDateString() %> <% } else { %> — <% } %>
+          </div>
+
+          <!-- Actions -->
+          <div class="col-span-2 flex items-center gap-2">
+            <% if (!file.isDir) { %>
+            <button
+              onclick="editFile('<%= encodeURIComponent(file.path) %>')"
+              class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs transition-colors"
+            >
+              <i class="fas fa-edit mr-1"></i>Edit
+            </button>
+            <% } else { %>
+            <button
+              onclick="downloadFolder('<%= encodeURIComponent(file.path) %>', '<%= file.name %>')"
+              class="px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs transition-colors"
+            >
+              <i class="fas fa-download mr-1"></i>Zip
+            </button>
+            <% } %>
+            <button
+              onclick="deleteItem('<%= encodeURIComponent(file.path) %>', '<%= file.name %>', <%= file.isDir %>)"
+              class="px-3 py-1 bg-red-600/20 hover:bg-red-600/40 text-red-400 rounded text-xs transition-colors"
+            >
+              <i class="fas fa-trash mr-1"></i>
+            </button>
+          </div>
+        </div>
+        <% }); %> <% } %>
+      </div>
+
+      <!-- File count -->
+      <div class="mt-4 text-gray-500 text-sm">
+        Total: <%= files.length %> item<% if (files.length !== 1) { %>s<% } %>
+      </div>
+    </main>
+
+    <!-- Modal -->
+    <div id="modal" class="modal">
+      <div class="modal-content">
+        <div id="modalContent"></div>
+      </div>
+    </div>
+    <script>
+      // Global variables
+      let uploadQueue = [];
+      let uploadedFiles = [];
+      let uploadProgress = 0;
+
+      // Helper functions
+      function formatBytes(bytes, decimals = 2) {
+        if (bytes === 0) return "0 Bytes";
+        const k = 1024;
+        const dm = decimals < 0 ? 0 : decimals;
+        const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return (
+          parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + " " + sizes[i]
+        );
+      }
+
+      function refreshFiles() {
+        window.location.reload();
+      }
+
+      function goUp() {
+        const currentPath = "<%= currentPath %>";
+        if (currentPath === "/") return;
+
+        const parts = currentPath.split("/").filter((p) => p);
+        parts.pop();
+        const newPath = parts.length > 0 ? "/" + parts.join("/") : "/";
+        window.location.href = `/server/<%= server.id %>/files?path=${encodeURIComponent(
+          newPath
+        )}`;
+      }
+
+      function closeModal() {
+        document.getElementById("modal").classList.remove("active");
+        // Reset upload state
+        uploadQueue = [];
+        uploadedFiles = [];
+        uploadProgress = 0;
+      }
+
+      // File upload functionality
+      function showUploadModal() {
+        const modalContent = document.getElementById("modalContent");
+        modalContent.innerHTML = `
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="text-xl font-bold">Upload Files</h3>
+            <button onclick="closeModal()" class="text-gray-400 hover:text-white">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+          
+          <div class="mb-4">
+            <label class="block text-gray-400 mb-2">
+              <i class="fas fa-folder mr-2"></i>Current Directory
+            </label>
+            <div class="px-4 py-2 bg-gray-700/50 rounded-lg text-gray-300">
+              <i class="fas fa-folder-open mr-2"></i><%= currentPath %>
+            </div>
+          </div>
+          
+          <div class="mb-4">
+            <label class="block text-gray-400 mb-2">
+              <i class="fas fa-file-upload mr-2"></i>Select Files (Max 10MB each)
+            </label>
+            <input type="file" id="fileInput" multiple 
+                   class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg cursor-pointer"
+                   accept="*">
+            <p class="text-gray-500 text-xs mt-2">Hold Ctrl/Cmd to select multiple files</p>
+          </div>
+          
+          <div id="fileList" class="file-list hidden">
+            <h4 class="text-gray-400 mb-2">Selected Files:</h4>
+            <div id="selectedFiles"></div>
+          </div>
+          
+          <div id="uploadProgress" class="hidden">
+            <div class="flex justify-between text-sm text-gray-400 mb-1">
+              <span>Uploading...</span>
+              <span id="progressText">0%</span>
+            </div>
+            <div class="progress-bar">
+              <div id="progressFill" class="progress-fill" style="width: 0%"></div>
+            </div>
+            <div id="uploadResults" class="mt-4"></div>
+          </div>
+          
+          <div class="flex justify-end gap-2 mt-4">
+            <button onclick="closeModal()" 
+                    class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors">
+              Cancel
+            </button>
+            <button onclick="processFileSelection()" 
+                    class="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors">
+              Next
+            </button>
+          </div>
+        `;
+
+        document.getElementById("modal").classList.add("active");
+
+        // Listen for file selection
+        document
+          .getElementById("fileInput")
+          .addEventListener("change", function (e) {
+            const files = e.target.files;
+            if (files.length > 0) {
+              document.getElementById("fileList").classList.remove("hidden");
+              showSelectedFiles(files);
+            }
+          });
+      }
+
+      function showSelectedFiles(files) {
+        const container = document.getElementById("selectedFiles");
+        container.innerHTML = "";
+
+        let totalSize = 0;
+
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          totalSize += file.size;
+
+          const fileItem = document.createElement("div");
+          fileItem.className = "file-item";
+          fileItem.innerHTML = `
+            <div class="flex items-center">
+              <i class="fas fa-file mr-2 text-gray-400"></i>
+              <span class="truncate max-w-[200px]">${file.name}</span>
+            </div>
+            <span class="text-gray-400 text-sm">${formatBytes(file.size)}</span>
+          `;
+          container.appendChild(fileItem);
+        }
+
+        // Add total size
+        const totalItem = document.createElement("div");
+        totalItem.className = "file-item mt-2 bg-gray-800";
+        totalItem.innerHTML = `
+          <div class="flex items-center">
+            <i class="fas fa-layer-group mr-2 text-gray-400"></i>
+            <span>Total</span>
+          </div>
+          <span class="text-gray-300">${formatBytes(totalSize)} (${
+          files.length
+        } files)</span>
+        `;
+        container.appendChild(totalItem);
+      }
+
+      function processFileSelection() {
+        const fileInput = document.getElementById("fileInput");
+        const files = fileInput.files;
+
+        if (files.length === 0) {
+          alert("Please select at least one file to upload");
+          return;
+        }
+
+        // Check file sizes
+        for (let i = 0; i < files.length; i++) {
+          if (files[i].size > 10 * 1024 * 1024) {
+            alert(`File "${files[i].name}" is too large (max 10MB)`);
+            return;
+          }
+        }
+
+        // Update modal for upload confirmation
+        const modalContent = document.getElementById("modalContent");
+        modalContent.innerHTML = `
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="text-xl font-bold">Upload Files</h3>
+            <button onclick="closeModal()" class="text-gray-400 hover:text-white">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+          
+          <div class="mb-4">
+            <p class="text-gray-300 mb-2">Ready to upload ${files.length} file(s) to:</p>
+            <div class="px-4 py-2 bg-gray-700/50 rounded-lg text-gray-300 mb-4">
+              <i class="fas fa-folder-open mr-2"></i><%= currentPath %>
+            </div>
+            
+            <div id="uploadProgress">
+              <div class="flex justify-between text-sm text-gray-400 mb-1">
+                <span>Preparing upload...</span>
+                <span id="progressText">0%</span>
+              </div>
+              <div class="progress-bar">
+                <div id="progressFill" class="progress-fill" style="width: 0%"></div>
+              </div>
+            </div>
+            
+            <div id="uploadResults" class="mt-4"></div>
+          </div>
+          
+          <div class="flex justify-end gap-2">
+            <button onclick="showUploadModal()" 
+                    class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors">
+              Back
+            </button>
+            <button onclick="startUpload()" 
+                    class="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg transition-colors">
+              <i class="fas fa-upload mr-2"></i>Start Upload
+            </button>
+          </div>
+        `;
+
+        // Store files for upload
+        uploadQueue = Array.from(files);
+      }
+
+      async function startUpload() {
+        const resultsContainer = document.getElementById("uploadResults");
+        resultsContainer.innerHTML =
+          '<div class="text-gray-400">Starting upload...</div>';
+
+        let successfulUploads = 0;
+        let failedUploads = 0;
+
+        // Create file list display
+        const fileList = document.createElement("div");
+        fileList.className = "file-list";
+        resultsContainer.appendChild(fileList);
+
+        // Upload each file
+        for (let i = 0; i < uploadQueue.length; i++) {
+          const file = uploadQueue[i];
+
+          // Update progress
+          uploadProgress = (i / uploadQueue.length) * 100;
+          updateProgress();
+
+          // Create file status item
+          const fileItem = document.createElement("div");
+          fileItem.className = "file-item";
+          fileItem.id = `file-${i}`;
+          fileItem.innerHTML = `
+            <div class="flex items-center">
+              <i class="fas fa-file mr-2 text-gray-400"></i>
+              <span class="truncate max-w-[200px]">${file.name}</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="text-gray-400 text-sm">${formatBytes(
+                file.size
+              )}</span>
+              <div class="w-3 h-3 rounded-full bg-gray-600 animate-pulse"></div>
+            </div>
+          `;
+          fileList.appendChild(fileItem);
+
+          try {
+            // Read file as base64
+            const base64Data = await readFileAsBase64(file);
+
+            // Upload to server
+            const response = await fetch(
+              `/server/<%= server.id %>/files/upload`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  filePath: "<%= currentPath %>",
+                  fileName: file.name,
+                  fileData: base64Data,
+                  encoding: "base64",
+                }),
+              }
+            );
+
+            const result = await response.json();
+
+            if (result.success) {
+              // Update status to success
+              document.getElementById(`file-${i}`).className =
+                "file-item success";
+              document.getElementById(`file-${i}`).innerHTML = `
+                <div class="flex items-center">
+                  <i class="fas fa-check-circle mr-2 text-green-400"></i>
+                  <span class="truncate max-w-[200px]">${file.name}</span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="text-green-400 text-sm">${formatBytes(
+                    file.size
+                  )}</span>
+                  <span class="text-green-400 text-xs">✓</span>
+                </div>
+              `;
+              successfulUploads++;
+              uploadedFiles.push(file.name);
+            } else {
+              // Update status to error
+              document.getElementById(`file-${i}`).className =
+                "file-item error";
+              document.getElementById(`file-${i}`).innerHTML = `
+                <div class="flex items-center">
+                  <i class="fas fa-times-circle mr-2 text-red-400"></i>
+                  <span class="truncate max-w-[200px]">${file.name}</span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="text-red-400 text-sm">${formatBytes(
+                    file.size
+                  )}</span>
+                  <span class="text-red-400 text-xs">✗ ${
+                    result.error || "Failed"
+                  }</span>
+                </div>
+              `;
+              failedUploads++;
+            }
+          } catch (error) {
+            // Update status to error
+            document.getElementById(`file-${i}`).className = "file-item error";
+            document.getElementById(`file-${i}`).innerHTML = `
+              <div class="flex items-center">
+                <i class="fas fa-times-circle mr-2 text-red-400"></i>
+                <span class="truncate max-w-[200px]">${file.name}</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-red-400 text-sm">${formatBytes(
+                  file.size
+                )}</span>
+                <span class="text-red-400 text-xs">✗ ${error.message}</span>
+              </div>
+            `;
+            failedUploads++;
+          }
+
+          // Update progress
+          uploadProgress = ((i + 1) / uploadQueue.length) * 100;
+          updateProgress();
+        }
+
+        // Show final results
+        setTimeout(() => {
+          const summary = document.createElement("div");
+          summary.className = "mt-4 p-4 rounded-lg bg-gray-800/50";
+          summary.innerHTML = `
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-gray-300 font-medium">Upload Complete</span>
+              <span class="text-gray-400 text-sm">${new Date().toLocaleTimeString()}</span>
+            </div>
+            <div class="grid grid-cols-2 gap-4 text-sm">
+              <div class="text-green-400">
+                <i class="fas fa-check-circle mr-1"></i> ${successfulUploads} successful
+              </div>
+              <div class="text-red-400">
+                <i class="fas fa-times-circle mr-1"></i> ${failedUploads} failed
+              </div>
+            </div>
+            <div class="mt-3 flex justify-end gap-2">
+              <button onclick="closeModal()" 
+                      class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors text-sm">
+                Close
+              </button>
+              ${
+                successfulUploads > 0
+                  ? `
+                <button onclick="refreshFiles()" 
+                        class="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg transition-colors text-sm">
+                  <i class="fas fa-sync-alt mr-1"></i>Refresh Files
+                </button>
+              `
+                  : ""
+              }
+            </div>
+          `;
+          resultsContainer.appendChild(summary);
+        }, 500);
+      }
+
+      function updateProgress() {
+        const progressFill = document.getElementById("progressFill");
+        const progressText = document.getElementById("progressText");
+
+        if (progressFill && progressText) {
+          progressFill.style.width = `${uploadProgress}%`;
+          progressText.textContent = `${Math.round(uploadProgress)}%`;
+        }
+      }
+
+      function readFileAsBase64(file) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            // Remove data URL prefix (e.g., "data:image/png;base64,")
+            const base64 = reader.result.split(",")[1] || reader.result;
+            resolve(base64);
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+      }
+
+      // Existing functions
+      function createFile() {
+        const modalContent = document.getElementById("modalContent");
+        modalContent.innerHTML = `
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="text-xl font-bold">Create New File</h3>
+            <button onclick="closeModal()" class="text-gray-400 hover:text-white">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+          <div class="mb-4">
+            <label class="block text-gray-400 mb-2">File Name</label>
+            <input type="text" id="fileName" 
+                   class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg" 
+                   placeholder="example.txt" autofocus>
+          </div>
+          <div class="flex justify-end gap-2">
+            <button onclick="closeModal()" 
+                    class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors">
+              Cancel
+            </button>
+            <button onclick="submitCreateFile()" 
+                    class="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg transition-colors">
+              Create
+            </button>
+          </div>
+        `;
+
+        document.getElementById("modal").classList.add("active");
+        document.getElementById("fileName").focus();
+      }
+
+      function createFolder() {
+        const modalContent = document.getElementById("modalContent");
+        modalContent.innerHTML = `
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="text-xl font-bold">Create New Folder</h3>
+            <button onclick="closeModal()" class="text-gray-400 hover:text-white">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+          <div class="mb-4">
+            <label class="block text-gray-400 mb-2">Folder Name</label>
+            <input type="text" id="folderName" 
+                   class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg" 
+                   placeholder="new-folder" autofocus>
+          </div>
+          <div class="flex justify-end gap-2">
+            <button onclick="closeModal()" 
+                    class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors">
+              Cancel
+            </button>
+            <button onclick="submitCreateFolder()" 
+                    class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors">
+              Create
+            </button>
+          </div>
+        `;
+
+        document.getElementById("modal").classList.add("active");
+        document.getElementById("folderName").focus();
+      }
+
+      function submitCreateFile() {
+        const fileName = document.getElementById("fileName").value.trim();
+        if (!fileName) {
+          alert("Please enter a file name");
+          return;
+        }
+
+        const currentPath = "<%= currentPath %>";
+        const fullPath = `${
+          currentPath === "/" ? "" : currentPath
+        }/${fileName}`.replace(/\/\//g, "/");
+
+        fetch(`/server/<%= server.id %>/files/create`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: "file",
+            name: fileName,
+            path: currentPath,
+          }),
+        })
+          .then((res) => res.json())
+          .then((data) => {
+            if (data.success) {
+              closeModal();
+              refreshFiles();
+            } else {
+              alert("Error: " + (data.error || "Failed to create file"));
+            }
+          })
+          .catch((err) => {
+            alert("Error creating file: " + err.message);
+          });
+      }
+
+      function submitCreateFolder() {
+        const folderName = document.getElementById("folderName").value.trim();
+        if (!folderName) {
+          alert("Please enter a folder name");
+          return;
+        }
+
+        alert("Folder creation would be implemented via API");
+        closeModal();
+      }
+
+      function editFile(filePath) {
+        const fileName = decodeURIComponent(filePath).split("/").pop();
+
+        // Check if it's a binary file before trying to read
+        const binaryExtensions = [
+          ".jar",
+          ".zip",
+          ".gz",
+          ".tar",
+          ".exe",
+          ".dll",
+          ".so",
+          ".dylib",
+          ".class",
+        ];
+        const isBinaryFile = binaryExtensions.some((ext) =>
+          fileName.toLowerCase().endsWith(ext)
+        );
+
+        if (isBinaryFile) {
+          // Show binary file warning
+          const modalContent = document.getElementById("modalContent");
+          modalContent.innerHTML = `
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="text-xl font-bold">Binary File Detected</h3>
+        <button onclick="closeModal()" class="text-gray-400 hover:text-white">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+      <div class="mb-4 p-4 bg-yellow-900/30 border border-yellow-700/50 rounded-lg">
+        <div class="flex items-center gap-2 text-yellow-400 mb-2">
+          <i class="fas fa-exclamation-triangle"></i>
+          <span class="font-medium">Cannot Edit Binary File</span>
+        </div>
+        <p class="text-gray-300 mb-2">File: <span class="font-mono">${fileName}</span></p>
+        <p class="text-gray-400 text-sm">
+          This file appears to be a binary file (plugin, archive, etc.) and cannot be edited as text.
+          You can download it instead.
+        </p>
+      </div>
+      <div class="flex justify-end gap-2">
+        <button onclick="closeModal()" 
+                class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors">
+          Close
+        </button>
+        <button onclick="downloadFile('${filePath.replace(
+          /'/g,
+          "\\'"
+        )}', '${fileName.replace(/'/g, "\\'")}')" 
+                class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors">
+          <i class="fas fa-download mr-2"></i>Download File
+        </button>
+      </div>
+    `;
+
+          document.getElementById("modal").classList.add("active");
+          return;
+        }
+
+        // If not binary, try to read it
+        fetch(`/server/<%= server.id %>/files/read`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ filePath }),
+        })
+          .then((res) => res.json())
+          .then((data) => {
+            if (data.success) {
+              const modalContent = document.getElementById("modalContent");
+              modalContent.innerHTML = `
+          <div class="flex justify-between items-center mb-4">
+            <h3 class="text-xl font-bold">Edit File: ${fileName}</h3>
+            <button onclick="closeModal()" class="text-gray-400 hover:text-white">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+          ${
+            data.warning
+              ? `
+          <div class="mb-3 p-3 bg-yellow-900/30 border border-yellow-700/50 rounded-lg">
+            <div class="flex items-center gap-2 text-yellow-400 text-sm">
+              <i class="fas fa-exclamation-circle"></i>
+              <span>${data.warning}</span>
+            </div>
+          </div>
+          `
+              : ""
+          }
+          <div class="mb-2">
+            <div class="text-gray-400 text-sm mb-1">Path: <span class="text-gray-300">${filePath}</span></div>
+            <div class="text-gray-400 text-sm">Size: <span class="text-gray-300">${formatBytes(
+              data.size || 0
+            )}</span></div>
+          </div>
+          <div class="mb-4">
+            <textarea id="fileContent" 
+                      class="w-full h-64 px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg font-mono text-sm"
+                      spellcheck="false">${data.content || ""}</textarea>
+          </div>
+          <div class="flex justify-end gap-2">
+            <button onclick="closeModal()" 
+                    class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors">
+              Cancel
+            </button>
+            <button onclick="saveFile('${filePath.replace(/'/g, "\\'")}')" 
+                    class="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg transition-colors">
+              Save
+            </button>
+          </div>
+        `;
+
+              document.getElementById("modal").classList.add("active");
+              document.getElementById("fileContent").focus();
+            } else {
+              // Handle binary file error from daemon
+              if (data.isBinary) {
+                const modalContent = document.getElementById("modalContent");
+                modalContent.innerHTML = `
+            <div class="flex justify-between items-center mb-4">
+              <h3 class="text-xl font-bold">Cannot Edit File</h3>
+              <button onclick="closeModal()" class="text-gray-400 hover:text-white">
+                <i class="fas fa-times"></i>
+              </button>
+            </div>
+            <div class="mb-4 p-4 bg-red-900/30 border border-red-700/50 rounded-lg">
+              <div class="flex items-center gap-2 text-red-400 mb-2">
+                <i class="fas fa-exclamation-circle"></i>
+                <span class="font-medium">${
+                  data.error || "Cannot read file"
+                }</span>
+              </div>
+              <p class="text-gray-300 mb-2">File: <span class="font-mono">${fileName}</span></p>
+              <p class="text-gray-400 text-sm">${
+                data.message || "This file cannot be edited as text."
+              }</p>
+            </div>
+            <div class="flex justify-end gap-2">
+              <button onclick="closeModal()" 
+                      class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors">
+                Close
+              </button>
+            </div>
+          `;
+
+                document.getElementById("modal").classList.add("active");
+              } else {
+                alert("Error: " + (data.error || "Failed to read file"));
+              }
+            }
+          })
+          .catch((err) => {
+            alert("Error reading file: " + err.message);
+          });
+      }
+
+      // Add download function
+      function downloadFile(filePath, fileName) {
+        // This would need a separate download endpoint in your daemon
+        alert(
+          `Would download file: ${fileName}\n\nTo implement: Create a /download endpoint in your daemon`
+        );
+        closeModal();
+      }
+
+      function saveFile(filePath) {
+        const content = document.getElementById("fileContent").value;
+
+        fetch(`/server/<%= server.id %>/files/write`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ filePath, content }),
+        })
+          .then((res) => res.json())
+          .then((data) => {
+            if (data.success) {
+              closeModal();
+              alert("File saved successfully!");
+            } else {
+              alert("Error: " + (data.error || "Failed to save file"));
+            }
+          })
+          .catch((err) => {
+            alert("Error saving file: " + err.message);
+          });
+      }
+
+      // UPDATED DELETE FUNCTION WITH FIXED LOGIC
+      // UPDATED DELETE FUNCTION WITH BETTER ERROR HANDLING
+      function deleteItem(filePath, fileName, isDir) {
+        const message = isDir
+          ? `Are you sure you want to delete the folder "${fileName}" and all its contents? This action cannot be undone.`
+          : `Are you sure you want to delete "${fileName}"? This action cannot be undone.`;
+
+        if (!confirm(message)) {
+          return;
+        }
+
+        // First try regular delete
+        const endpoint = `/server/<%= server.id %>/files/delete`;
+
+        fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            filePath,
+            force: isDir,
+          }),
+        })
+          .then(async (res) => {
+            const data = await res.json();
+
+            if (!res.ok) {
+              // Handle specific error cases
+              if (res.status === 400 && data.items && data.items > 0) {
+                // Directory not empty - ask for force delete
+                if (
+                  confirm(
+                    `Directory contains ${data.items} items. Delete anyway?`
+                  )
+                ) {
+                  // Try force delete
+                  return fetch(`/server/<%= server.id %>/files/delete-force`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ filePath }),
+                  });
+                } else {
+                  throw new Error("Cancelled by user");
+                }
+              } else {
+                // Other errors
+                throw new Error(
+                  data.error || data.message || `HTTP ${res.status}`
+                );
+              }
+            }
+
+            return { ok: true, data };
+          })
+          .then(async (response) => {
+            let data;
+            if (response.ok) {
+              data = response.data;
+            } else {
+              data = await response.json();
+            }
+
+            if (data && data.success) {
+              alert(`"${fileName}" deleted successfully`);
+              refreshFiles();
+            } else {
+              alert(
+                "Error: " + (data?.error || data?.message || "Failed to delete")
+              );
+            }
+          })
+          .catch((err) => {
+            console.error("Delete error:", err);
+            if (err.message !== "Cancelled by user") {
+              alert("Error: " + err.message);
+            }
+          });
+      }
+
+      function downloadFolder(folderPath, folderName) {
+        alert(
+          `Would download folder "${folderName}" as zip (to be implemented)`
+        );
+        // You would need to implement a zip download endpoint in your daemon
+      }
+
+      // Close modal on ESC key
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") {
+          closeModal();
+        }
+      });
+    </script>
+  </body>
+</html>

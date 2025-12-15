@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Admin - <%= settings.panelName %></title>
+    <link rel="icon" href="/falcon.ico" />
+
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="bg-gray-900 text-white min-h-screen">
+    <div class="flex">
+      <aside class="w-64 min-h-screen bg-gray-800 border-r border-gray-700 p-4">
+        <div class="flex items-center gap-3 mb-8">
+          <div
+            class="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center"
+          >
+            <svg
+              class="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2"
+              />
+            </svg>
+          </div>
+          <span class="font-bold"><%= settings.panelName %></span>
+        </div>
+
+        <nav class="space-y-2">
+          <a
+            href="/admin/overview"
+            class="block px-4 py-2 bg-violet-500/20 text-violet-400 rounded-lg"
+            >Overview</a
+          >
+          <a
+            href="/admin/nodes"
+            class="block px-4 py-2 text-gray-400 hover:bg-gray-700 rounded-lg"
+            >Nodes</a
+          >
+          <a
+            href="/admin/servers"
+            class="block px-4 py-2 text-gray-400 hover:bg-gray-700 rounded-lg"
+            >Servers</a
+          >
+          <a
+            href="/admin/users"
+            class="block px-4 py-2 text-gray-400 hover:bg-gray-700 rounded-lg"
+            >Users</a
+          >
+          <a
+            href="/admin/settings"
+            class="block px-4 py-2 text-gray-400 hover:bg-gray-700 rounded-lg"
+            >Settings</a
+          >
+        </nav>
+
+        <div class="mt-auto pt-8">
+          <a
+            href="/dashboard"
+            class="block px-4 py-2 text-gray-400 hover:bg-gray-700 rounded-lg"
+            >← User Dashboard</a
+          >
+          <a
+            href="/auth/logout"
+            class="block px-4 py-2 text-gray-400 hover:bg-gray-700 rounded-lg"
+            >Logout</a
+          >
+        </div>
+      </aside>
+
+      <main class="flex-1 p-8">
+        <h1 class="text-3xl font-bold mb-8">Admin Overview</h1>
+
+        <div class="grid md:grid-cols-3 gap-6">
+          <div class="bg-gray-800/50 rounded-xl border border-gray-700/50 p-6">
+            <p class="text-gray-400 text-sm">Total Users</p>
+            <p class="text-3xl font-bold"><%= stats.users %></p>
+          </div>
+          <div class="bg-gray-800/50 rounded-xl border border-gray-700/50 p-6">
+            <p class="text-gray-400 text-sm">Total Servers</p>
+            <p class="text-3xl font-bold"><%= stats.servers %></p>
+          </div>
+          <div class="bg-gray-800/50 rounded-xl border border-gray-700/50 p-6">
+            <p class="text-gray-400 text-sm">Total Nodes</p>
+            <p class="text-3xl font-bold"><%= stats.nodes %></p>
+          </div>
+        </div>
+      </main>
+    </div>
+  </body>
+</html>

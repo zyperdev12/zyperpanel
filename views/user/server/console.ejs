@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Console - <%= server.name %></title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <link rel="icon" href="/falcon.ico" />
+
+    <style>
+      #console {
+        background: #0b0b0b;
+        border: 1px solid #333;
+        border-radius: 8px;
+        height: 520px;
+        overflow-y: auto;
+        padding: 12px;
+        font-family: monospace;
+        font-size: 13px;
+        white-space: pre-wrap;
+      }
+      .log {
+        color: #d1d5db;
+      }
+      .cmd {
+        color: #facc15;
+        font-weight: bold;
+      }
+      .sys {
+        color: #34d399;
+        font-style: italic;
+      }
+      .err {
+        color: #f87171;
+      }
+    </style>
+  </head>
+
+  <body class="bg-gray-900 text-white">
+    <nav
+      class="bg-gray-800 border-b border-gray-700 px-6 h-14 flex items-center gap-4"
+    >
+      <a href="/server/<%= server.id %>" class="text-gray-400 hover:text-white"
+        >← Back</a
+      >
+      <span class="font-bold"><%= server.name %> Console</span>
+    </nav>
+
+    <main class="max-w-7xl mx-auto px-6 py-6">
+      <div id="console"></div>
+
+      <form id="commandForm" class="mt-4 flex gap-2">
+        <input
+          id="command"
+          class="flex-1 px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg font-mono"
+          placeholder="Enter command…"
+          autocomplete="off"
+        />
+        <button class="px-6 py-2 bg-violet-600 rounded-lg hover:bg-violet-700">
+          Send
+        </button>
+      </form>
+    </main>
+
+    <script>
+            const serverId = "<%= server.id %>";
+            const consoleEl = document.getElementById("console");
+            const input = document.getElementById("command");
+            let lastLogSize = 0;
+
+            /* ======================================================
+               ANSI STRIPPER (IMPORTANT)
+            ====================================================== */
+            function stripAnsi(input) {
+        return input
+          // remove ALL ANSI / VT100 escape sequences
+          .replace(/\x1B\[[0-9?;]*[ -/]*[@-~]/g, '')
+          // remove remaining ESC chars
+          .replace(/\x1B/g, '')
+          // normalize line endings
+          .replace(/\r/g, '');
+      }
+            /* ======================================================
+               CONSOLE RENDER
+            ====================================================== */
+            function add(text, cls="log") {
+              stripAnsi(text)
+                .split("\n")
+                .forEach(line => {
+                  if (!line.trim()) return;
+                  const d = document.createElement("div");
+                  d.className = cls;
+                  d.textContent = line;
+                  consoleEl.appendChild(d);
+                });
+              consoleEl.scrollTop = consoleEl.scrollHeight;
+            }
+
+            /* ================= DB LOGS ================= */
+            <% (logs || []).forEach(l => { %>
+            add("[DB] <%= l.message.replace(/"/g,'\\"') %>","log");
+            <% }) %>
+
+            /* ================= SOCKET ================= */
+            const socket = io();
+
+            socket.on("connect", () => {
+              add("[System] ✅ Live console connected","sys");
+              socket.emit("join-server", serverId);
+            });
+
+            socket.on("console-output", d => {
+              if (d?.message) add(d.message, "log");
+            });
+
+            /* ================= HTTP POLLING ================= */
+            async function pollLogs() {
+              try {
+                const r = await fetch(`/server/${serverId}/logs`);
+                const j = await r.json();
+                if (!j.success || !j.logs) return;
+
+                const clean = stripAnsi(j.logs);
+                const lines = clean.split("\n");
+
+                if (lines.length <= lastLogSize) return;
+                lines.slice(lastLogSize).forEach(l => add(l, "log"));
+                lastLogSize = lines.length;
+              } catch {}
+            }
+
+            pollLogs();
+            setInterval(pollLogs, 2000);
+
+            /* ================= COMMANDS ================= */
+            document.getElementById("commandForm").onsubmit = async e => {
+              e.preventDefault();
+              const cmd = input.value.trim();
+              if (!cmd) return;
+
+              add("> " + cmd, "cmd");
+              input.value = "";
+
+              await fetch(`/server/${serverId}/command`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ command: cmd })
+              });
+            };
+
+            input.focus();
+    </script>
+  </body>
+</html>

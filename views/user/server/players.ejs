@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Players - <%= server.name %></title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="icon" href="/falcon.ico" />
+  </head>
+  <body class="bg-gray-900 text-white min-h-screen">
+    <nav class="bg-gray-800 border-b border-gray-700">
+      <div class="max-w-7xl mx-auto px-6 h-16 flex items-center gap-4">
+        <a
+          href="/server/<%= server.id %>"
+          class="text-gray-400 hover:text-white"
+          >← Back</a
+        >
+        <span class="text-xl font-bold"><%= server.name %> - Players</span>
+      </div>
+    </nav>
+
+    <main class="max-w-7xl mx-auto px-6 py-8">
+      <% if (players.length === 0) { %>
+      <div
+        class="bg-gray-800/50 rounded-xl border border-gray-700/50 p-12 text-center text-gray-400"
+      >
+        No players online
+      </div>
+      <% } else { %>
+      <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <% players.forEach(player => { %>
+        <div
+          class="bg-gray-800/50 rounded-xl border border-gray-700/50 p-4 flex items-center justify-between"
+        >
+          <div class="flex items-center gap-3">
+            <img
+              src="https://mc-heads.net/avatar/<%= player.username %>/32"
+              class="w-8 h-8 rounded"
+            />
+            <div>
+              <p class="font-semibold"><%= player.username %></p>
+              <p class="text-xs text-gray-500">
+                <%= player.op ? 'OP' : 'Player' %>
+              </p>
+            </div>
+          </div>
+          <div class="flex gap-2">
+            <button
+              class="px-3 py-1 text-sm bg-yellow-500/20 text-yellow-400 rounded hover:bg-yellow-500/30"
+            >
+              Kick
+            </button>
+            <button
+              class="px-3 py-1 text-sm bg-red-500/20 text-red-400 rounded hover:bg-red-500/30"
+            >
+              Ban
+            </button>
+          </div>
+        </div>
+        <% }) %>
+      </div>
+      <% } %>
+    </main>
+  </body>
+</html>

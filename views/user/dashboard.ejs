@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dashboard - <%= settings.panelName %></title>
+    <link rel="icon" href="/falcon.ico" />
+
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="bg-gray-900 text-white min-h-screen">
+    <nav class="bg-gray-800 border-b border-gray-700">
+      <div
+        class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between"
+      >
+        <span class="text-xl font-bold"><%= settings.panelName %></span>
+        <div class="flex items-center gap-4">
+          <span class="text-gray-400"><%= user.username %></span>
+          <% if (user.isAdmin) { %>
+          <a
+            href="/admin/overview"
+            class="px-4 py-2 bg-violet-500/20 text-violet-400 rounded-lg hover:bg-violet-500/30"
+            >Admin</a
+          >
+          <% } %>
+          <a href="/auth/logout" class="text-gray-400 hover:text-white"
+            >Logout</a
+          >
+        </div>
+      </div>
+    </nav>
+
+    <main class="max-w-7xl mx-auto px-6 py-8">
+      <h1 class="text-3xl font-bold mb-8">My Servers</h1>
+
+      <% if (servers.length === 0) { %>
+      <div
+        class="bg-gray-800/50 rounded-xl border border-gray-700/50 p-12 text-center"
+      >
+        <p class="text-gray-400 mb-4">You don't have any servers yet.</p>
+        <p class="text-sm text-gray-500">
+          Contact an administrator to create a server for you.
+        </p>
+      </div>
+      <% } else { %>
+      <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <% servers.forEach(server => { %>
+        <div class="bg-gray-800/50 rounded-xl border border-gray-700/50 p-6">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-semibold"><%= server.name %></h3>
+            <span
+              class="px-2 py-1 rounded text-xs <%= server.status === 'running' ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400' %>"
+            >
+              <%= server.status %>
+            </span>
+          </div>
+          <div class="space-y-2 text-sm text-gray-400 mb-4">
+            <p>Type: <%= server.type %> (<%= server.version %>)</p>
+            <p>Node: <%= server.node.name %></p>
+            <p>Memory: <%= server.memory %> MB | CPU: <%= server.cpu %>%</p>
+          </div>
+          <a
+            href="/server/<%= server.id %>"
+            class="block w-full py-2 text-center bg-violet-500/20 text-violet-400 rounded-lg hover:bg-violet-500/30"
+            >Manage</a
+          >
+        </div>
+        <% }) %>
+      </div>
+      <% } %>
+    </main>
+  </body>
+</html>

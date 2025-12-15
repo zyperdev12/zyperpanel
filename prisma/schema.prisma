@@ -1,0 +1,120 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  username  String   @unique
+  email     String   @unique
+  password  String
+  isAdmin   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  servers Server[]
+}
+
+model Node {
+  id          String   @id @default(uuid())
+  name        String
+  cpu         Int
+  ram         Int
+  location    String
+  host        String   @default("localhost")
+  port        Int      @default(8080)
+  key         String   @unique @default(uuid())
+  status      String   @default("offline")
+  containerId String?
+  createdAt   DateTime @default(now())
+
+  servers Server[]
+}
+
+model Server {
+  id          String  @id @default(cuid())
+  name        String
+  type        String  @default("minecraft")
+  version     String  @default("1.20.1")
+  port        Int
+  memory      Int
+  cpu         Int
+  containerId String?
+  status      String  @default("stopped")
+
+  // Relations
+  nodeId String
+  node   Node   @relation(fields: [nodeId], references: [id])
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  players     Player[]
+  plugins     Plugin[]
+  files       ServerFile[]
+  backups     Backup[]
+  consoleLogs ConsoleLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Player {
+  id       String   @id @default(uuid())
+  uuid     String
+  username String
+  serverId String
+  server   Server   @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  lastSeen DateTime @default(now())
+  banned   Boolean  @default(false)
+  op       Boolean  @default(false)
+}
+
+model Plugin {
+  id       String  @id @default(uuid())
+  name     String
+  version  String
+  enabled  Boolean @default(true)
+  serverId String
+  server   Server  @relation(fields: [serverId], references: [id], onDelete: Cascade)
+}
+
+model ServerFile {
+  id        String   @id @default(uuid())
+  name      String
+  path      String
+  size      Int
+  isDir     Boolean  @default(false)
+  serverId  String
+  server    Server   @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  updatedAt DateTime @updatedAt
+}
+
+model Backup {
+  id        String   @id @default(uuid())
+  name      String
+  size      Int
+  serverId  String
+  server    Server   @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+}
+
+model ConsoleLog {
+  id        String   @id @default(uuid())
+  serverId  String
+  server    Server   @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  message   String
+  type      String   @default("info")
+  createdAt DateTime @default(now())
+}
+
+model Settings {
+  id        String @id @default(uuid())
+  panelName String @default("ZyperPanel")
+  panelPort Int    @default(3000)
+  panelIcon String @default("/favicon.ico")
+}
