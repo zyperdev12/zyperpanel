@@ -79,7 +79,10 @@ npx prisma generate
 
 ```bash
 npm run build
-npm start
+npm install -g pm2
+pm2 start npm --name "Zyper-Daemon" -- start
+pm2 save
+pm2 startup
 
 ```
 
