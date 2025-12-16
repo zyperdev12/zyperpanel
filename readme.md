@@ -89,3 +89,12 @@ pm2 startup
 6. **Access the panel**
 
 ### Open your Panel on port 3000 and Can get the credintials on the .env
+
+
+
+
+7. **Note to add multiple admin users/non-admin users via terminal**
+
+```bash
+sudo npm run adduser
+```
