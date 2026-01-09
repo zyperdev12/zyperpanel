@@ -17,7 +17,7 @@ dotenv.config();
 // Add TypeScript declarations for session
 declare module "express-session" {
   interface SessionData {
-    userId: string;
+    userId?: string;
   }
 }
 
@@ -176,8 +176,8 @@ app.use(
     ],
   })
 );
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '500mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(cookieParser());
 app.use(
   session({
@@ -813,6 +813,7 @@ app.get(
         files,
         currentPath,
         error,
+
         formatBytes: (bytes: number) => {
           if (bytes === 0) return "0 Bytes";
           const k = 1024;
@@ -821,6 +822,10 @@ app.get(
           return (
             parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i]
           );
+        },
+
+        calculateTotalSize: (files: any[]) => {
+          return files.reduce((total, file) => total + (file.size || 0), 0);
         },
       });
     } catch (error: any) {
@@ -1969,6 +1974,80 @@ app.post(
       res.json(result);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
+    }
+  }
+);
+
+// Rename file or folder
+app.post(
+  "/server/:id/files/rename",
+  requireAuth,
+  async (req: express.Request, res: express.Response) => {
+    try {
+      const { oldPath, newName, isDir } = req.body;
+      const server = await prisma.server.findUnique({
+        where: { id: req.params.id },
+        include: { node: true },
+      });
+
+      if (!server || server.userId !== req.session.userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      if (!server.containerId) {
+        return res.status(400).json({ error: "Server not created" });
+      }
+
+      const result = await NodeAPI.call(
+        server.node.id,
+        `/instances/${server.containerId}/files/rename`,
+        "POST",
+        { oldPath, newName, isDir }
+      );
+
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
+
+// Download file
+app.get(
+  "/server/:id/files/download",
+  requireAuth,
+  async (req: express.Request, res: express.Response) => {
+    try {
+      const { path: filePath, name } = req.query;
+      const server = await prisma.server.findUnique({
+        where: { id: req.params.id },
+        include: { node: true },
+      });
+
+      if (!server || server.userId !== req.session.userId) {
+        return res.status(403).send("Access denied");
+      }
+
+      // Get file content from daemon
+      const fileData = await NodeAPI.call(
+        server.node.id,
+        `/instances/${server.containerId}/files/read`,
+        "POST",
+        { filePath }
+      );
+
+      if (!fileData.success) {
+        return res.status(404).send("File not found");
+      }
+
+      // Set download headers
+      res.setHeader("Content-Disposition", `attachment; filename="${name || path.basename(filePath as string)}"`);
+      res.setHeader("Content-Type", "application/octet-stream");
+      
+      // Send file content
+      res.send(Buffer.from(fileData.content, fileData.encoding === "base64" ? "base64" : "utf-8"));
+    } catch (error: any) {
+      res.status(500).send(error.message);
     }
   }
 );
